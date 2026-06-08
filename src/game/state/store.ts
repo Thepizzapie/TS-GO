@@ -131,7 +131,12 @@ export const useGameStore = create<StoreState>((set, get) => ({
   setScreen: (screen) => set({ screen }),
   setError: (error) => set({ error, screen: error ? "error" : get().screen }),
   setConnection: (info) => set((s) => ({ ...s, ...info })),
-  setLobby: (lobby) => set({ lobby }),
+  // Clone so a new reference lands in the store every update. The host mutates
+  // its LobbyState in place (roster/config), so without a fresh reference here
+  // Zustand sees no change and the host's lobby UI never re-renders (the client
+  // works regardless because it gets a fresh deserialized object over the wire).
+  setLobby: (lobby) =>
+    set({ lobby: lobby ? { ...lobby, players: lobby.players.map((p) => ({ ...p })) } : null }),
   setPendingConfig: (c) => set((s) => ({ pendingConfig: { ...s.pendingConfig, ...c } })),
   setGame: (game) => set({ game }),
   setUi: (p) => set((s) => ({ ...s, ...p })),
