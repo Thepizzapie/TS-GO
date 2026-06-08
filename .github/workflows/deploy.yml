@@ -32,6 +32,10 @@ jobs:
           node-version: 20
           cache: npm
 
+      # Enables GitHub Pages on first run (no manual Settings step needed).
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
       - name: Install dependencies
         run: npm ci
 
