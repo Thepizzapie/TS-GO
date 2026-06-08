@@ -1,0 +1,32 @@
+{
+  "name": "tomato-strike",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TOMATO STRIKE: Garden Offensive — the Temu-budget Counter-Strike, played by tomatoes. Online host-a-room 3D shooter built on Next.js + react-three-fiber + PeerJS.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "@react-three/drei": "9.114.3",
+    "@react-three/fiber": "8.17.10",
+    "@react-three/postprocessing": "^2.16.3",
+    "next": "14.2.5",
+    "peerjs": "1.5.4",
+    "postprocessing": "^6.36.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.169.0",
+    "zustand": "4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "@types/three": "0.169.0",
+    "typescript": "5.5.3"
+  }
+}
