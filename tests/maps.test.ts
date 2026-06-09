@@ -96,11 +96,13 @@ for (const map of Object.values(MAPS)) {
     assert.ok(tall >= 10, `${map.id} has only ${tall} tall walls — needs more rooms/corridors`);
   });
 
-  test(`${map.id}: tight enough (short sightlines, not too open)`, () => {
+  test(`${map.id}: tight bulk with only a few signature long angles`, () => {
+    // dust2-style: most of the map is tight (low avg), with a FEW long power
+    // angles allowed (Long A / mid) — but no wide-open arena.
     const s = sightStats(map);
-    assert.ok(s.avg < 9.0, `${map.id} avg sightline ${s.avg.toFixed(1)}m too long (want < 9) — dogleg the lanes`);
-    assert.ok(s.longFrac < 0.09, `${map.id} ${(s.longFrac * 100).toFixed(0)}% of angles see >18m (want < 9%) — break lanes with walls`);
-    assert.ok(s.veryLongFrac < 0.025, `${map.id} ${(s.veryLongFrac * 100).toFixed(0)}% of angles see >28m (want < 2.5%) — no cross-map sightlines`);
+    assert.ok(s.avg < 8.5, `${map.id} avg sightline ${s.avg.toFixed(1)}m too long (want < 8.5) — most of the map must stay tight`);
+    assert.ok(s.longFrac < 0.18, `${map.id} ${(s.longFrac * 100).toFixed(0)}% of angles see >18m (want < 18%)`);
+    assert.ok(s.veryLongFrac < 0.06, `${map.id} ${(s.veryLongFrac * 100).toFixed(0)}% of angles see >28m (want < 6% — a couple signature lanes are fine)`);
   });
 
   test(`${map.id}: spawns + nav nodes are in open space`, () => {

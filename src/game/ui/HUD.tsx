@@ -88,6 +88,20 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
       {/* ---- Damage + low-HP vignette ---- */}
       {me && <DamageVignette hp={me.hp} alive={me.alive} />}
 
+      {/* ---- Onion-bomb flash blind ---- */}
+      {me && me.alive && me.flashedUntil > now && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "#fff7e8",
+            opacity: Math.min(1, (me.flashedUntil - now) / 2600),
+            pointerEvents: "none",
+            zIndex: 60,
+          }}
+        />
+      )}
+
       {/* ---- Sniper scope ---- */}
       {scoped && <ScopeOverlay />}
 

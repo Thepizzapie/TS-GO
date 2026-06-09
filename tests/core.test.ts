@@ -15,6 +15,7 @@ import {
   applyShoot,
   applyBuyWeapon,
   applyReload,
+  applyThrow,
 } from "../src/game/core/sim";
 import type { MatchConfig } from "../src/game/core/types";
 import { REWARD_ROUND_WIN } from "../src/game/core/constants";
@@ -162,6 +163,36 @@ test("bomb drops on carrier death and a teammate can recover it", () => {
   hostTick(state, {}, 1 / 30);
   assert.equal(state.players.s2.hasBomb, true, "teammate recovers the bomb");
   assert.equal(state.bomb.dropped, false, "bomb no longer loose");
+});
+
+test("thrown grenade flies and detonates (not stuck at the thrower's feet)", () => {
+  const state = createMatch(baseConfig, [
+    { id: "g1", name: "G", team: "guard", isBot: true },
+    { id: "s1", name: "S", team: "spoilers", isBot: true },
+  ]);
+  hostTick(state, {}, 1 / 30); // → live
+  const s = state.players.s1;
+  s.alive = true;
+  s.pos = [0, 0, 23];
+  s.onGround = true;
+  s.inventory.push({ id: "rotten_lobber", ammo: 1, reserve: 0 });
+  applyThrow(state, "s1", { weapon: "rotten_lobber", origin: [0, 1.6, 23], dir: [1, 0, 0], power: 0.9 });
+  assert.equal(state.projectiles.length, 1, "throw should spawn a projectile");
+
+  let maxDist = 0;
+  let detonated = false;
+  for (let i = 0; i < 90; i++) {
+    if (state.projectiles.length) {
+      const g = state.projectiles[0];
+      maxDist = Math.max(maxDist, Math.hypot(g.pos[0], g.pos[2] - 23));
+    } else {
+      detonated = true;
+      break;
+    }
+    hostTick(state, {}, 1 / 30);
+  }
+  assert.ok(maxDist > 5, `grenade only traveled ${maxDist.toFixed(1)}m — likely stuck at feet`);
+  assert.ok(detonated, "grenade never detonated");
 });
 
 test("deathmatch: a kill increments the team score", () => {

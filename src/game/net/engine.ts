@@ -11,7 +11,7 @@
  * splats, beeps) flow through `engine.onFx`, so audio/particles subscribe once
  * regardless of role.
  */
-import type { GameState, MatchConfig, PlayerInput, ShotMsg, ThrowMsg, WeaponId } from "../core/types";
+import type { GameState, MatchConfig, PlayerInput, ShotMsg, ThrowMsg, Vec3, WeaponId } from "../core/types";
 import { getMap } from "../core/maps";
 import {
   applyBuyEquipment,
@@ -70,6 +70,7 @@ export class GameEngine {
 
   // diff trackers for snapshot-derived fx
   private lastKfId = 0;
+  private projInfo = new Map<number, { pos: Vec3; weapon: WeaponId }>();
   private prevPlanted = false;
   private prevDefused = false;
   private prevPhase = "";
@@ -304,6 +305,21 @@ export class GameEngine {
       const remain = Math.max(0, s.bomb.detonatesAt - s.now);
       this.nextBeepAt = now + Math.max(150, Math.min(900, remain * 0.06));
     }
+    // grenade detonations: a projectile that vanished this frame just went off
+    const curIds = new Set<number>();
+    for (const g of s.projectiles) {
+      curIds.add(g.id);
+      this.projInfo.set(g.id, { pos: g.pos, weapon: g.weapon });
+    }
+    for (const [id, info] of this.projInfo) {
+      if (!curIds.has(id)) {
+        if (info.weapon === "rotten_lobber") this.emitFx({ k: "explode", pos: info.pos });
+        else if (info.weapon === "onion_bomb") this.emitFx({ k: "flash", pid: "" });
+        // compost smoke renders as a volume — no boom fx needed
+        this.projInfo.delete(id);
+      }
+    }
+
     this.prevPlanted = s.bomb.planted;
     this.prevDefused = s.bomb.defused;
     this.prevPhase = s.phase;

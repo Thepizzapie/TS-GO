@@ -518,9 +518,17 @@ function stepProjectiles(state: GameState, map: MapDef): void {
   const dt = 1 / 60;
   for (const g of state.projectiles) {
     g.vel[1] -= GRAVITY * dt;
+    const impactVy = g.vel[1]; // pre-collision fall speed, for the bounce
     const res = stepBody(g.pos, g.vel, dt, 0.15, 0.3, map.boxes, map.bounds);
     g.pos = res.pos;
-    g.vel = [res.vel[0] * 0.8, res.vel[1] * (res.onGround ? -0.4 : 1), res.vel[2] * 0.8];
+    if (res.onGround) {
+      // bounce off the floor: keep most horizontal momentum, lose energy vertically
+      g.vel = [res.vel[0] * 0.6, Math.max(0, -impactVy * 0.4), res.vel[2] * 0.6];
+      if (g.vel[1] < 1.3) g.vel[1] = 0; // settle once the bounce is small
+    } else {
+      // in the air (or sliding a wall): keep flying — NO per-tick drag
+      g.vel = res.vel;
+    }
   }
   const live: typeof state.projectiles = [];
   for (const g of state.projectiles) {
