@@ -16,14 +16,14 @@ export const MAX_PLAYERS = 10;
 
 // --- World / physics ---------------------------------------------------------
 export const GRAVITY = 22; // m/s^2 downward
-export const RUN_SPEED = 5.6; // m/s base ground speed
-export const WALK_SPEED = 2.9; // m/s while holding shift (silent)
-export const CROUCH_SPEED = 1.9; // m/s while crouched
-export const AIR_SPEED = 6.0; // soft cap on horizontal air speed
-export const GROUND_ACCEL = 60; // m/s^2
-export const AIR_ACCEL = 16; // m/s^2 (allows a little air control)
-export const FRICTION = 9; // ground friction coefficient
-export const JUMP_SPEED = 6.4; // m/s initial upward velocity
+export const RUN_SPEED = 4.9; // m/s base ground speed (weightier, less twitchy)
+export const WALK_SPEED = 2.6; // m/s while holding shift (silent)
+export const CROUCH_SPEED = 1.7; // m/s while crouched
+export const AIR_SPEED = 4.8; // soft cap on horizontal air speed (less air-strafe)
+export const GROUND_ACCEL = 34; // m/s^2 (ramps up with weight, not instant)
+export const AIR_ACCEL = 7; // m/s^2 (much less air control — not nimble)
+export const FRICTION = 8.5; // ground friction coefficient (still crisp stops to shoot)
+export const JUMP_SPEED = 6.2; // m/s initial upward velocity (still clears 0.8m boxes)
 
 // --- Player capsule ----------------------------------------------------------
 export const PLAYER_RADIUS = 0.42;
