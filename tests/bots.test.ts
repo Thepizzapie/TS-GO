@@ -86,4 +86,43 @@ for (const mapId of ["de_garden", "ts_kitchen", "de_orchard"]) {
     assert.ok(avg > 18, `${mapId}: avg bot travel ${avg.toFixed(1)}m too low — bots likely stuck/bunched`);
     assert.ok(movers >= 6, `${mapId}: only ${movers}/8 bots moved meaningfully — stuck on walls`);
   });
+
+  test(`${mapId}: bomb carrier issues a plant once on its committed site`, () => {
+    const config: MatchConfig = {
+      mode: "defusal",
+      mapId,
+      scoreTarget: 9,
+      buyTime: 0,
+      roundTime: 200,
+      bombTime: 40,
+      botCount: 0,
+      botSkill: 0.6,
+      friendlyFire: false,
+    };
+    const state = createMatch(config, [
+      { id: "ps", name: "Carrier", team: "spoilers", isBot: true, botSkill: 0.6 },
+      { id: "dg", name: "Def", team: "guard", isBot: true, botSkill: 0.6 },
+    ]);
+    hostTick(state, {}, 1 / 30); // leave buy → live
+    const map = getMap(mapId);
+    const c = state.players.ps;
+    c.hasBomb = true;
+    c.alive = true;
+    c.onGround = true;
+
+    // The carrier commits to a random site; whichever it is, standing on it must
+    // trigger a plant (input.using = true). Try both sites to stay deterministic.
+    let planted = false;
+    for (const key of ["A", "B"] as const) {
+      const ctr = map.sites[key].center;
+      c.pos = [ctr[0], 0, ctr[2]];
+      c.onGround = true;
+      const cmd = botThink(state, c, map, 1 / 30);
+      if (cmd.input.using) {
+        planted = true;
+        break;
+      }
+    }
+    assert.ok(planted, `${mapId}: carrier never issued a plant while standing on a bombsite`);
+  });
 }

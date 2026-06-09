@@ -246,7 +246,7 @@ function chooseGoalNode(state: GameState, bot: PlayerState, map: MapDef, m: BotM
     return nearestNode(map, map.sites[pickRandomSite(m, state)].center);
   }
 
-  // ---- Defenders (Guard): patrol an assigned site ----
+  // ---- Defenders (Guard): patrol an assigned site, rotate to the threat ----
   if (b.planted && b.pos) return nearestNode(map, b.pos); // rotate to retake/defuse
   if (m.assignedSite == null || m.siteRound !== state.roundNumber) {
     m.siteRound = state.roundNumber;
@@ -254,10 +254,22 @@ function chooseGoalNode(state: GameState, bot: PlayerState, map: MapDef, m: BotM
     m.assignedSite = bot.id.charCodeAt(bot.id.length - 1) % 2 === 0 ? "A" : "B";
     m.patrolNode = -1;
   }
-  // roam between the site's positions instead of standing on the center
-  if (m.patrolNode < 0 || m.patrolNode >= map.navNodes.length || state.now >= m.patrolUntil) {
-    m.patrolNode = randomSiteNode(map, m.assignedSite, m.patrolNode);
-    m.patrolUntil = state.now + 2500 + Math.random() * 2500;
+  // Collapse onto whichever site the bomb carrier is committing to (rotation).
+  let hold: "A" | "B" = m.assignedSite;
+  const carrier = findCarrier(state, "spoilers");
+  if (carrier) {
+    for (const key of ["A", "B"] as const) {
+      if (distXZ(carrier.pos, map.sites[key].center) < map.sites[key].radius + 12) {
+        hold = key;
+        break;
+      }
+    }
+  }
+  // roam between the held site's positions instead of standing on the center
+  const ns = siteNodes(map, hold);
+  if (m.patrolNode < 0 || state.now >= m.patrolUntil || !ns.includes(m.patrolNode)) {
+    m.patrolNode = randomSiteNode(map, hold, m.patrolNode);
+    m.patrolUntil = state.now + 2000 + Math.random() * 2500;
   }
   return m.patrolNode;
 }
@@ -343,19 +355,120 @@ export function botThink(state: GameState, bot: PlayerState, map: MapDef, dt: nu
   }
 
   const cmd: BotCommand = { input };
+  const b = state.bomb;
 
-  if (target) {
-    engageTarget(state, bot, target, map, m, input, cmd, dt);
-  } else {
-    navigate(state, bot, map, m, input, dt);
+  // ---- Objective takes PRIORITY over wandering/fighting ----
+  // Carrier on-site plants (and keeps shooting while it plants).
+  if (!dm && bot.team === "spoilers" && bot.hasBomb && !b.planted) {
+    if (carrierPlant(state, bot, map, m, input, cmd, target, dt)) {
+      input.yaw = m.aimYaw;
+      input.pitch = m.aimPitch;
+      return cmd;
+    }
+  }
+  // Defender on the planted bomb defuses (shooting through threats).
+  if (!dm && bot.team === "guard" && b.planted && !b.defused && b.pos) {
+    if (botDefuse(state, bot, map, m, input, cmd, target, dt)) {
+      input.yaw = m.aimYaw;
+      input.pitch = m.aimPitch;
+      return cmd;
+    }
   }
 
-  // objective interaction (plant/defuse) when not actively fighting
-  if (!target && !dm) doObjective(state, bot, map, input);
+  if (target) engageTarget(state, bot, target, map, m, input, cmd, dt);
+  else navigate(state, bot, map, m, input, dt);
 
   input.yaw = m.aimYaw;
   input.pitch = m.aimPitch;
   return cmd;
+}
+
+/** Turn toward a target and fire if lined up (used while planting/defusing). */
+function aimAndMaybeShoot(
+  state: GameState,
+  bot: PlayerState,
+  map: MapDef,
+  m: BotMem,
+  cmd: BotCommand,
+  target: PlayerState | null,
+  dt: number
+): void {
+  if (!target) return;
+  const eye = eyePos(bot);
+  const dY = yawTo(bot.pos, target.pos);
+  const dP = Math.atan2(eyePos(target)[1] - eye[1], Math.max(0.5, distXZ(bot.pos, target.pos)));
+  const turn = (6 + bot.botSkill * 9) * dt;
+  m.aimYaw += clamp(angleDelta(m.aimYaw, dY), -turn, turn);
+  m.aimPitch = clamp(m.aimPitch + clamp(angleDelta(m.aimPitch, dP), -turn, turn), -1.3, 1.3);
+  const item = bot.inventory.find((i) => i.id === bot.currentWeapon);
+  if (item && item.ammo <= 0 && WEAPONS[bot.currentWeapon].slot !== "melee") {
+    cmd.reload = true;
+    return;
+  }
+  if (Math.abs(angleDelta(m.aimYaw, dY)) < 0.12) {
+    const s = makeShot(state, bot, map);
+    if (s) cmd.shoot = s;
+  }
+}
+
+/** Walk straight toward a world point (face + move). */
+function steerTo(bot: PlayerState, m: BotMem, input: PlayerInput, pos: Vec3, dt: number): void {
+  let mx = pos[0] - bot.pos[0];
+  let mz = pos[2] - bot.pos[2];
+  const ml = Math.hypot(mx, mz) || 1;
+  mx /= ml;
+  mz /= ml;
+  m.aimYaw += clamp(angleDelta(m.aimYaw, Math.atan2(mx, -mz)), -7 * dt, 7 * dt);
+  const right: [number, number] = [Math.cos(m.aimYaw), Math.sin(m.aimYaw)];
+  const fwd: [number, number] = [Math.sin(m.aimYaw), -Math.cos(m.aimYaw)];
+  input.move = [mx * right[0] + mz * right[1], mx * fwd[0] + mz * fwd[1]];
+}
+
+function carrierPlant(
+  state: GameState,
+  bot: PlayerState,
+  map: MapDef,
+  m: BotMem,
+  input: PlayerInput,
+  cmd: BotCommand,
+  target: PlayerState | null,
+  dt: number
+): boolean {
+  const site = map.sites[pickRandomSite(m, state)];
+  const d = distXZ(bot.pos, site.center);
+  if (d > site.radius + 6) return false; // too far — let navigate/engage bring us in
+  if (d <= site.radius && bot.onGround) {
+    input.using = true; // PLANT
+    input.move = [0, 0];
+    aimAndMaybeShoot(state, bot, map, m, cmd, target, dt); // defend the plant
+    return true;
+  }
+  steerTo(bot, m, input, site.center, dt); // close — push onto the site
+  return true;
+}
+
+function botDefuse(
+  state: GameState,
+  bot: PlayerState,
+  map: MapDef,
+  m: BotMem,
+  input: PlayerInput,
+  cmd: BotCommand,
+  target: PlayerState | null,
+  dt: number
+): boolean {
+  const b = state.bomb;
+  if (!b.pos) return false;
+  const d = distXZ(bot.pos, b.pos);
+  if (d > 8) return false; // navigate (goal = bomb) closes the gap first
+  if (d <= 3 && bot.onGround) {
+    input.using = true; // DEFUSE
+    input.move = [0, 0];
+    aimAndMaybeShoot(state, bot, map, m, cmd, target, dt);
+    return true;
+  }
+  steerTo(bot, m, input, b.pos, dt);
+  return true;
 }
 
 function engageTarget(
@@ -517,25 +630,6 @@ function navigate(state: GameState, bot: PlayerState, map: MapDef, m: BotMem, in
     }
     input.jump = true;
     input.move = [m.strafe, 0.7];
-  }
-}
-
-function doObjective(state: GameState, bot: PlayerState, map: MapDef, input: PlayerInput): void {
-  const b = state.bomb;
-  if (bot.team === "spoilers" && bot.hasBomb && !b.planted) {
-    for (const key of ["A", "B"] as const) {
-      if (distXZ(bot.pos, map.sites[key].center) <= map.sites[key].radius) {
-        input.using = true;
-        input.move = [0, 0];
-        return;
-      }
-    }
-  }
-  if (bot.team === "guard" && b.planted && !b.defused && b.pos) {
-    if (distXZ(bot.pos, b.pos) < 2.4) {
-      input.using = true;
-      input.move = [0, 0];
-    }
   }
 }
 
