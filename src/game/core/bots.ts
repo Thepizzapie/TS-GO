@@ -47,6 +47,11 @@ interface BotMem {
   aimPitch: number;
   jumpUntil: number;
   nextNadeAt: number;
+  // stuck detection / recovery
+  lastX: number;
+  lastZ: number;
+  stuckT: number;
+  unstickUntil: number;
 }
 
 const mems = new Map<string, BotMem>();
@@ -68,6 +73,10 @@ function mem(id: string, p: PlayerState): BotMem {
       aimPitch: 0,
       jumpUntil: 0,
       nextNadeAt: 0,
+      lastX: p.pos[0],
+      lastZ: p.pos[2],
+      stuckT: 0,
+      unstickUntil: 0,
     };
     mems.set(id, m);
   }
@@ -109,6 +118,27 @@ function nearestNode(map: MapDef, pos: Vec3): number {
     }
   }
   return best;
+}
+
+/**
+ * Nearest nav node the bot can actually walk to in a straight line (clear LOS,
+ * no wall between) — so a path never STARTS by aiming the bot straight through a
+ * spawn screen wall or site wall (the cause of bots bunching up against them).
+ */
+function nearestReachableNode(map: MapDef, pos: Vec3): number {
+  const eye: Vec3 = [pos[0], pos[1] + 1.6, pos[2]];
+  let best = -1;
+  let bd = Infinity;
+  for (let i = 0; i < map.navNodes.length; i++) {
+    const n = map.navNodes[i];
+    const d = distXZ(pos, n);
+    if (d >= bd) continue;
+    if (hasLineOfSight(eye, [n[0], eye[1], n[2]], map.boxes)) {
+      bd = d;
+      best = i;
+    }
+  }
+  return best >= 0 ? best : nearestNode(map, pos);
 }
 
 function bfs(adj: number[][], start: number, goal: number): number[] {
@@ -326,7 +356,7 @@ function engageTarget(
   }
 
   // reaction gate, then fire if aim is close enough
-  const reaction = 90 + (1 - bot.botSkill) * 320;
+  const reaction = 70 + (1 - bot.botSkill) * 240;
   const aligned = Math.abs(angleDelta(m.aimYaw, desiredYaw)) < 0.09 + (1 - bot.botSkill) * 0.06;
   if (state.now - m.firstSeenAt > reaction && aligned && dist <= w.range) {
     const shot = makeShot(state, bot, map);
@@ -338,8 +368,8 @@ function makeShot(state: GameState, bot: PlayerState, map: MapDef): ShotMsg | nu
   const eye = eyePos(bot);
   const w = WEAPONS[bot.currentWeapon];
   // aim error shrinks with skill, grows with weapon spread + movement
-  const moving = Math.hypot(bot.vel[0], bot.vel[2]) > 1.2 ? 1.8 : 1;
-  const errDeg = (w.spread + (1 - bot.botSkill) * 4.5) * moving;
+  const moving = Math.hypot(bot.vel[0], bot.vel[2]) > 1.2 ? 1.7 : 1;
+  const errDeg = (w.spread * 0.7 + (1 - bot.botSkill) * 3.2) * moving;
   const jitter = (deg: number) => ((Math.random() - 0.5) * 2 * deg * Math.PI) / 180;
   const yaw = bot.yaw + jitter(errDeg);
   const pitch = clamp(bot.pitch + jitter(errDeg), -1.3, 1.3);
@@ -353,28 +383,80 @@ function makeShot(state: GameState, bot: PlayerState, map: MapDef): ShotMsg | nu
 function navigate(state: GameState, bot: PlayerState, map: MapDef, m: BotMem, input: PlayerInput, dt: number): void {
   const adj = adjacency(map);
   const nodeCount = map.navNodes.length;
-  const stalePath = m.pathIdx >= m.path.length || m.path[m.pathIdx] >= nodeCount;
+  const eye = eyePos(bot);
+  const boxes = map.boxes;
+
+  const stalePath = m.pathIdx >= m.path.length || (m.path[m.pathIdx] ?? nodeCount) >= nodeCount;
   if (state.now >= m.repathAt || m.path.length === 0 || stalePath) {
     m.goalNode = chooseGoalNode(state, bot, map);
-    m.path = bfs(adj, nearestNode(map, bot.pos), m.goalNode);
+    m.path = bfs(adj, nearestReachableNode(map, bot.pos), m.goalNode);
     m.pathIdx = 0;
     m.repathAt = state.now + 1500 + Math.random() * 1500;
   }
-  // advance along path (always fall back to current position so we never sub() undefined)
-  let wp = map.navNodes[m.path[m.pathIdx]] ?? bot.pos;
-  if (distXZ(bot.pos, wp) < 2.2 && m.pathIdx < m.path.length - 1) {
-    m.pathIdx++;
-    wp = map.navNodes[m.path[m.pathIdx]] ?? bot.pos;
+
+  // String-pull: steer toward the FURTHEST node on the path we can currently see,
+  // so we cut through doorways instead of grinding each waypoint into a wall.
+  let targetIdx = m.pathIdx;
+  for (let i = m.pathIdx; i < m.path.length; i++) {
+    const n = map.navNodes[m.path[i]];
+    if (n && hasLineOfSight(eye, [n[0], eye[1], n[2]], boxes)) targetIdx = i;
+    else break;
   }
-  const dir = normalize(sub(wp, bot.pos));
-  const desiredYaw = yawTo(bot.pos, wp);
-  const turn = 6 * dt;
+  m.pathIdx = targetIdx;
+  let wp = map.navNodes[m.path[targetIdx]] ?? bot.pos;
+  if (distXZ(bot.pos, wp) < 2.0 && targetIdx < m.path.length - 1) {
+    m.pathIdx = targetIdx + 1;
+    wp = map.navNodes[m.path[m.pathIdx]] ?? wp;
+  }
+
+  // Heading = toward waypoint + separation from crowding teammates (kills the
+  // spawn-wall / site bunch-ups).
+  let mx = wp[0] - bot.pos[0];
+  let mz = wp[2] - bot.pos[2];
+  const ml = Math.hypot(mx, mz) || 1;
+  mx /= ml;
+  mz /= ml;
+  for (const o of Object.values(state.players)) {
+    if (o.id === bot.id || !o.alive || o.team !== bot.team) continue;
+    const dx = bot.pos[0] - o.pos[0];
+    const dz = bot.pos[2] - o.pos[2];
+    const d = Math.hypot(dx, dz);
+    if (d > 0.01 && d < 3) {
+      const f = ((3 - d) / 3) * 0.7;
+      mx += (dx / d) * f;
+      mz += (dz / d) * f;
+    }
+  }
+
+  const desiredYaw = Math.atan2(mx, -mz);
+  const turn = 7 * dt;
   m.aimYaw += clamp(angleDelta(m.aimYaw, desiredYaw), -turn, turn);
   m.aimPitch += clamp(angleDelta(m.aimPitch, 0), -turn, turn);
-
   const right: [number, number] = [Math.cos(m.aimYaw), Math.sin(m.aimYaw)];
   const fwd: [number, number] = [Math.sin(m.aimYaw), -Math.cos(m.aimYaw)];
-  input.move = [dir[0] * right[0] + dir[2] * right[1], dir[0] * fwd[0] + dir[2] * fwd[1]];
+  input.move = [mx * right[0] + mz * right[1], mx * fwd[0] + mz * fwd[1]];
+
+  // Stuck recovery: trying to move but barely budging (hung on a wall edge) →
+  // force a fresh reachable repath + jiggle/jump to pop free.
+  const moved = Math.hypot(bot.pos[0] - m.lastX, bot.pos[2] - m.lastZ);
+  m.lastX = bot.pos[0];
+  m.lastZ = bot.pos[2];
+  if (moved < 0.035) m.stuckT += dt;
+  else m.stuckT = Math.max(0, m.stuckT - dt * 2.5);
+  if (m.stuckT > 0.45) {
+    m.path = [];
+    m.repathAt = 0;
+    m.unstickUntil = state.now + 450;
+    m.stuckT = 0;
+  }
+  if (state.now < m.unstickUntil) {
+    if (state.now > m.strafeUntil) {
+      m.strafe = Math.random() < 0.5 ? -1 : 1;
+      m.strafeUntil = state.now + 250;
+    }
+    input.jump = true;
+    input.move = [m.strafe, 0.7];
+  }
 }
 
 function doObjective(state: GameState, bot: PlayerState, map: MapDef, input: PlayerInput): void {
