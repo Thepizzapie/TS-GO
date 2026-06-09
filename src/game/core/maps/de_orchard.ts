@@ -1,20 +1,27 @@
 /**
- * de_orchard — variety map (v4: doglegged tactical layout).
+ * de_orchard — an inferno-style asymmetric garden (authored from scratch).
  *
- * Same enclosed, doglegged philosophy as de_garden (authored from scratch:
- * bent lanes, offset doorways, no cross-map sightline), but a distinct MID:
- * instead of one solid greenhouse, a staggered grove of full-height tree
- * planters — backed by short flank walls — blocks the centre so you weave
- * between trunks with no long diagonal. Sites are a tight Toolshed (A, east)
- * and a Well courtyard (B, west). A nav node sits in every doorway/bend.
+ * Distinct from de_garden AND ts_kitchen by INVERTING which side is long: here
+ * the SIGNATURE long power-angle is BANANA on the B side (west) — a long, gently
+ * doglegged orchard row from T to B, exactly like inferno's banana — while the A
+ * side (east) plays tight through APARTMENTS and the ARCH onto a courtyard A
+ * site. MID is short, broken by an orchard tree, with a quick A SHORT to A.
  *
- *   (north / -Z)  ──────────  Garden Guard spawn  ──────────
- *      [ B: WELL ]      CT hall west | CT hall east       [ A: SHED ]
- *      (west room)   ══ B connector ══ ORCHARD ══ A connector ══  (east room)
- *      [ B  lane ]               T center door               [ A lane ]
- *   (south / +Z)  ── B mouth ──   The Spoilers spawn   ── A mouth ──
+ *   +Z is south (T / attacker half); -Z is north (CT / defender half).
+ *   +X is EAST  → A side (Apartments / Arch → A courtyard = SHED-A).
+ *   -X is WEST  → B side (BANANA → B site = WELL).
+ *
+ * THE FLOW (inferno DNA):
+ *   T SPAWN (south) → three ways:
+ *     · BANANA (west)        → the long signature lane → B SITE (Well)
+ *     · MID (center)         → A SHORT (through the orchard) → A SITE
+ *     · APARTMENTS (east)    → ARCH → A SITE (tight)
+ *   B SITE (north-west, at banana's end) held from CT via B DOORS; A SITE
+ *   (north-east courtyard) held from CT + the Arch/Short. CT SPAWN north-center.
  *
  * Box `pos` is the CENTER; a wall of height WALL_H stands at y = WALL_H/2.
+ * Full-height walls + dogleg stubs block sight; planters/crates (h≈1.2-1.9) are
+ * peek cover; h≈0.8 boxes are boosts. Skin: garden.
  */
 import type { MapDef } from "../types";
 
@@ -26,258 +33,272 @@ const T = 0.8;
 export const de_orchard: MapDef = {
   id: "de_orchard",
   name: "de_orchard",
-  blurb: "An orchard compound: T-spawn splits into two doglegged lanes around a tree-blocked mid, into a tight Toolshed and an open Well the Guard holds from a central spawn.",
-  bounds: [36, 26],
+  blurb:
+    "An inferno-style orchard. The B side is the long Banana power lane to the Well; the A side plays tight through Apartments and the Arch onto a courtyard. Mid is short, broken by an orchard tree.",
+  bounds: [38, 28],
   skin: "garden",
   boxes: [
     // ===================================================================
-    // PERIMETER (x∈[-36,36], z∈[-26,26])
+    // PERIMETER (x∈[-38,38], z∈[-28,28])
     // ===================================================================
-    { pos: [0, WY, -26], size: [72, WALL_H, T], material: WALL },
-    { pos: [0, WY, 26], size: [72, WALL_H, T], material: WALL },
-    { pos: [36, WY, 0], size: [T, WALL_H, 52], material: WALL },
-    { pos: [-36, WY, 0], size: [T, WALL_H, 52], material: WALL },
+    { pos: [0, WY, -28], size: [76, WALL_H, T], material: WALL },
+    { pos: [0, WY, 28], size: [76, WALL_H, T], material: WALL },
+    { pos: [38, WY, 0], size: [T, WALL_H, 56], material: WALL },
+    { pos: [-38, WY, 0], size: [T, WALL_H, 56], material: WALL },
 
     // ===================================================================
-    // T SPAWN ROOM (south, +Z): strip z∈[14,26]. Front wall z=14 doorways:
-    //   B mouth x∈[-24,-20] (4m), center x∈[-2,2] (4m), A mouth x∈[20,24].
-    // Two baffles split the room (West/Center/East) joined by a back corridor
-    // (z∈[23,26]); a central planter breaks the center cell.
+    // T SPAWN (south, +Z) — room x∈[-26,22], z∈[15,28]. FRONT wall z=15 with
+    // three OFFSET mouths: Banana x∈[-30,-24] (W, over banana), Mid x∈[-3,3]
+    // (C), Apartments x∈[14,20] (E). Cell dividers x=-13 / x=11 (offset doors).
     // ===================================================================
-    { pos: [-30, WY, 14], size: [12, WALL_H, T], material: WALL }, // [-36..-24]
-    { pos: [-11, WY, 14], size: [18, WALL_H, T], material: WALL }, // [-20..-2]
-    { pos: [11, WY, 14], size: [18, WALL_H, T], material: WALL }, // [2..20]
-    { pos: [30, WY, 14], size: [12, WALL_H, T], material: WALL }, // [24..36]
-    { pos: [-13, WY, 18.5], size: [T, WALL_H, 9], material: WALL }, // W baffle x=-13 z[14..23]
-    { pos: [13, WY, 18.5], size: [T, WALL_H, 9], material: WALL }, // E baffle x=13 z[14..23]
-    { pos: [0, 0.95, 19], size: [3, 1.9, 3], material: "planter" }, // center-cell breaker
-    { pos: [-26, 0.6, 18], size: [2.2, 1.2, 2.2], material: "planter" }, // W cell peek
-    { pos: [26, 0.6, 18], size: [2.2, 1.2, 2.2], material: "planter" }, // E cell peek
+    { pos: [-32, WY, 21.5], size: [T, WALL_H, 13], material: WALL }, // west wall x=-32 z[15..28] (W cell reaches the Banana mouth)
+    { pos: [33, WY, 21.5], size: [T, WALL_H, 13], material: WALL }, // east wall x=33 z[15..28] (E cell reaches the Apts mouth)
+    { pos: [-36, WY, 15], size: [4, WALL_H, T], material: WALL }, // front wall x[-38..-34] (Banana mouth gap x[-30..-24])
+    { pos: [-32.5, WY, 15], size: [1, WALL_H, T], material: WALL }, // front wall x[-33..-32]
+    { pos: [-13.5, WY, 15], size: [21, WALL_H, T], material: WALL }, // front wall x[-24..-3] (Mid gap x[-3..3])
+    { pos: [14.5, WY, 15], size: [23, WALL_H, T], material: WALL }, // front wall x[3..26]
+    { pos: [35, WY, 15], size: [6, WALL_H, T], material: WALL }, // front wall x[32..38] (Apartments mouth gap x[26..32])
+    { pos: [-13, WY, 19], size: [T, WALL_H, 8], material: WALL }, // W divider x=-13 z[15..23] (W door z[23..28] back? -> see)
+    { pos: [-13, WY, 26.75], size: [T, WALL_H, 2.5], material: WALL }, // W divider back x=-13 z[25.5..28] (W door z[23..25.5])
+    { pos: [11, WY, 20], size: [T, WALL_H, 10], material: WALL }, // E divider x=11 z[15..25] (E door z[25..28])
+    { pos: [0, 0.95, 19], size: [3, 1.9, 3], material: "planter" }, // center breaker
+    { pos: [-19, 0.6, 19], size: [2.2, 1.2, 2.2], material: "planter" }, // W cell peek
+    { pos: [17, 0.6, 19], size: [2.2, 1.2, 2.2], material: "planter" }, // E cell peek
+    { pos: [-23, WY, 26.5], size: [2, WALL_H, 2], material: "planter" }, // W cell back pillar (breaks T-spawn E/W line)
+    { pos: [22, WY, 26.5], size: [2, WALL_H, 2], material: "planter" }, // E cell back pillar (breaks T-spawn E/W line)
 
     // ===================================================================
-    // MID — the ORCHARD. x∈[-19,19], z∈[-9,14]. A staggered grove of four
-    // full-height tree planters blocks the centre line and the E/W diagonal;
-    // short flank walls behind the outer trees seal the long cross-lane sight.
-    // Mid|lane walls x=±19 each have a north connector door (z∈[9,12]); the
-    // mid/CT divider (z=-9) opens only at the far sides (x∈[13,19] / [-19,-13]).
+    // BANANA (west) — THE SIGNATURE LONG LANE to B. A long, gently doglegged
+    // orchard row: x∈[-38,-24], z∈[-14,15] running north from T's Banana mouth
+    // up to B SITE. Two staggered planters give cover (so it isn't a clean
+    // line) but its length (~24 m) is the map's one long power angle.
     // ===================================================================
-    { pos: [0, WY, 7], size: [4, WALL_H, 4], material: "planter", label: "Orchard" }, // tree N-center x[-2,2] z[5,9]
-    { pos: [0, WY, 0], size: [4, WALL_H, 4], material: "planter" }, // tree S-center x[-2,2] z[-2,2]
-    { pos: [9, WY, 3.5], size: [4, WALL_H, 4], material: "planter" }, // tree E x[7,11] z[1.5,5.5]
-    { pos: [-9, WY, 3.5], size: [4, WALL_H, 4], material: "planter" }, // tree W x[-11,-7] z[1.5,5.5]
-    { pos: [11, WY, 7], size: [6, WALL_H, T], material: WALL }, // N flank E  x[8..14] (corridor x[14,19] open)
-    { pos: [-11, WY, 7], size: [6, WALL_H, T], material: WALL }, // N flank W
-    { pos: [11, WY, 0], size: [6, WALL_H, T], material: WALL }, // S flank E  x[8..14]
-    { pos: [-11, WY, 0], size: [6, WALL_H, T], material: WALL }, // S flank W
-    { pos: [19, WY, 0], size: [T, WALL_H, 18], material: WALL }, // mid|A wall [-9..9]
-    { pos: [19, WY, 13], size: [T, WALL_H, 2], material: WALL }, // mid|A wall [12..14]  (gap z[9..12])
-    { pos: [-19, WY, 0], size: [T, WALL_H, 18], material: WALL }, // mid|B wall
-    { pos: [-19, WY, 13], size: [T, WALL_H, 2], material: WALL },
-    { pos: [0, WY, -9], size: [26, WALL_H, T], material: WALL }, // mid/CT divider [-13..13]
-    { pos: [15, 0.6, 11], size: [2, 1.2, 2], material: "crate" }, // by A connector door
-    { pos: [-15, 0.6, 11], size: [2, 1.2, 2], material: "crate" },
-    { pos: [0, 0.4, 12], size: [2.4, 0.8, 1.6], material: "crate" }, // jumpable boost (T center)
-    { pos: [16, 0.6, -5], size: [2, 1.2, 2], material: "planter" }, // mid SE pocket cover
-    { pos: [-16, 0.6, -5], size: [2, 1.2, 2], material: "planter" }, // mid SW pocket cover
+    { pos: [-24, WY, 5.5], size: [T, WALL_H, 19], material: WALL }, // Banana east wall x=-24 z[-4..15] (vs Mid)
+    { pos: [-24, WY, -10.5], size: [T, WALL_H, 5], material: WALL }, // Banana east wall x=-24 z[-13..-8] (B-site mouth gap z[-8..-4])
+    // Two full-height baffles from the WEST wall narrow the banana to a ~7 m
+    // channel and stagger it, so the long lane stays long but isn't a wide field.
+    { pos: [-35, WY, 10], size: [6, WALL_H, T], material: WALL }, // banana baffle x[-38..-32] z=10 (channel x[-32..-24])
+    { pos: [-35, WY, -1], size: [6, WALL_H, T], material: WALL }, // banana baffle x[-38..-32] z=-1
+    { pos: [-30, 0.95, 4], size: [2.2, 1.9, 2.2], material: "planter", label: "Banana" }, // banana cover (mid channel)
+    { pos: [-29, 0.6, -6], size: [2.2, 1.2, 2.2], material: "planter" }, // banana cover (lower)
 
     // ===================================================================
-    // A LANE (east corridor) x∈[19,36], z∈[-9,14]. S-BEND: outer stub (x=36)
-    // at z=7.5, inner stub (x=19) at z=-1 → snake. Enters from A mouth (z=14)
-    // and the mid connector (x=19, z[9,12]); exits south into A site through
-    // the z=-9 gap (x[30,36]).
+    // B SITE — WELL (north-west, at banana's end) x∈[-38,-24], z∈[-28,-14].
+    // Tight plant zone. Entrances: from BANANA (the z=-14 gap x∈[-32,-26]);
+    // from CT via B DOORS (the x=-24 gap at z∈[-22,-17]). A full-height Well +
+    // crates break it for plant/retake.
     // ===================================================================
-    { pos: [28.5, WY, 7.5], size: [15, WALL_H, T], material: WALL }, // outer stub x[21..36] z=7.5 (gap x[19..21])
-    { pos: [26, WY, -1], size: [16, WALL_H, T], material: WALL }, // inner stub x[19..34] z=-1 (gap x[34..36])
-    { pos: [24, 0.6, 11], size: [2, 1.2, 2], material: "crate" }, // A lane top peek (top band)
-    { pos: [31, 0.95, 3.5], size: [2, 1.9, 1.4], material: "crate" }, // A lane middle jiggle (outer)
-    { pos: [22, 0.6, -5], size: [2, 1.2, 2], material: "planter" }, // A lane lower cover
+    { pos: [-35, WY, -14], size: [6, WALL_H, T], material: WALL }, // B site south wall x[-38..-32]
+    { pos: [-25, WY, -14], size: [2, WALL_H, T], material: WALL }, // B site south wall x[-26..-24] (banana mouth gap x[-32..-26])
+    { pos: [-24, WY, -25], size: [T, WALL_H, 6], material: WALL }, // B site east wall x=-24 z[-28..-22]
+    { pos: [-24, WY, -15.5], size: [T, WALL_H, 3], material: WALL }, // B site east wall x=-24 z[-17..-14] (B Doors gap z[-22..-17])
+    { pos: [-30, WY, -22], size: [4, WALL_H, 3], material: "pantry", label: "Well" }, // plant landmark (full height)
+    { pos: [-35, WY, -18], size: [2, WALL_H, 2], material: "pantry" }, // B back-west pillar (full height, breaks B/banana E/W line)
+    { pos: [-28, 0.95, -25], size: [3, 1.9, 1.4], material: "crate", label: "B Site" }, // B default-plant cover
+    { pos: [-27, 0.6, -16], size: [2, 1.2, 2], material: "crate" }, // B banana-side cover
 
     // ===================================================================
-    // B LANE (west corridor) — mirror.
+    // MID (center) x∈[-24,11], z∈[-9,15]. SHORT mid, broken by a full-height
+    // orchard TREE so T-mid never sees CT-mid. A SHORT (the quick path to A)
+    // leaves mid east via the x=11 gap (z[6,9]); the Mid→CT gap (z=-9) feeds CT.
     // ===================================================================
-    { pos: [-28.5, WY, 7.5], size: [15, WALL_H, T], material: WALL },
-    { pos: [-26, WY, -1], size: [16, WALL_H, T], material: WALL },
-    { pos: [-24, 0.6, 11], size: [2, 1.2, 2], material: "crate" },
-    { pos: [-31, 0.95, 3.5], size: [2, 1.9, 1.4], material: "crate" },
-    { pos: [-22, 0.6, -5], size: [2, 1.2, 2], material: "planter" },
+    { pos: [-6, WY, 4], size: [6, WALL_H, 6], material: "greenhouse", label: "Orchard Tree" }, // mid blocker x[-9,-3] z[1,7]
+    { pos: [4, WY, 7], size: [6, WALL_H, T], material: WALL }, // mid N flank x[1..7] z=7 (A Short gap x[7..11] open)
+    { pos: [4, WY, 1], size: [6, WALL_H, T], material: WALL }, // mid S flank x[1..7] z=1
+    { pos: [11, WY, 11.5], size: [T, WALL_H, 7], material: WALL }, // mid|Apts wall x=11 z[8..15]
+    { pos: [11, WY, -1], size: [T, WALL_H, 14], material: WALL }, // mid|Apts wall x=11 z[-8..6] (A Short gap z[6..8])
+    { pos: [-17.5, WY, -9], size: [13, WALL_H, T], material: WALL }, // mid/CT divider x[-24..-11] z=-9 (seals mid-west; breaks the N/S lane)
+    { pos: [-9.5, WY, -9], size: [3, WALL_H, T], material: WALL }, // mid/CT divider x[-11..-8] z=-9
+    { pos: [3, WY, -9], size: [12, WALL_H, T], material: WALL }, // mid/CT divider x[-3..9] z=-9 (Mid→CT gap x[-8..-3])
+    { pos: [-8, 0.6, 12], size: [2.2, 1.2, 2.2], material: "planter" }, // mid T-side cover
+    { pos: [0, 0.4, 11], size: [2.4, 0.8, 1.6], material: "crate" }, // mid jumpable boost
+    { pos: [6, 0.6, 4], size: [1.8, 1.2, 1.8], material: "planter" }, // mid A-short cover
+    { pos: [-3, 0.6, -5], size: [2, 1.2, 2], material: "planter" }, // mid SW cover (by Mid→CT gap)
 
     // ===================================================================
-    // A SITE — TOOLSHED (east room) x∈[19,36], z∈[-26,-9]. lane/site divider
-    // (z=-9, gap x[30,36]) + CT/site divider (x=19, gap z[-16,-11]). A lane-
-    // entry JOG (z=-12) doglegs the approach; a full-height Toolshed breaks it.
+    // APARTMENTS → ARCH (east, x∈[24,38]) — the TIGHT A approach. APARTMENTS
+    // (z∈[2,15]) from T's E mouth doglegs down through the ARCH (z∈[-6,2]) into
+    // the A SITE court. A SHORT (from Mid) joins via the A short column.
     // ===================================================================
-    { pos: [24.5, WY, -9], size: [11, WALL_H, T], material: WALL }, // [19..30]; lane gap [30..36]
-    { pos: [33, WY, -12], size: [6, WALL_H, T], material: WALL }, // lane-entry jog x[30..36] z=-12
-    { pos: [19, WY, -21.5], size: [T, WALL_H, 9], material: WALL }, // CT side [-26..-17]
-    { pos: [19, WY, -10], size: [T, WALL_H, 2], material: WALL }, // CT side [-11..-9] (gap z[-17..-11])
-    { pos: [28, WY, -22], size: [4, WALL_H, 3], material: "crate", label: "Toolshed" }, // plant pit (full height) x[26,30] z[-23.5,-20.5]
-    { pos: [33, 0.95, -15], size: [2, 1.9, 2.4], material: "crate" }, // A back-east cover
-    { pos: [23, 0.95, -23], size: [3, 1.9, 1.4], material: "crate" }, // A back retake cover
-    { pos: [22, 0.6, -15.5], size: [2, 1.2, 2], material: "crate" }, // A CT-side cover
+    { pos: [24, WY, 8.5], size: [T, WALL_H, 13], material: WALL }, // Apts west wall x=24 z[2..15]
+    { pos: [33.5, WY, 2], size: [9, WALL_H, T], material: WALL }, // Apts/Arch divider x[29..38] z=2 (Apts→Arch gap x[24..29])
+    { pos: [33, 0.6, 11], size: [2.2, 1.2, 2.2], material: "planter" }, // Apartments cover/boost
+    { pos: [28, 0.6, 6], size: [2, 1.2, 2], material: "planter" }, // Apartments lower cover (by Apts→Arch gap x[24..29])
+    { pos: [30, 0.95, -3], size: [2, 1.9, 1.6], material: "crate", label: "Arch" }, // Arch cover
 
     // ===================================================================
-    // B SITE — WELL (west room) mirror.
+    // A SHORT COLUMN (x∈[11,24]) — links MID (top, x=11 gap z[6,8]), CT (bottom,
+    // x=11 gap z[-22,-17]) and the A SITE (east, x=24 gap z[-12,-7]).
     // ===================================================================
-    { pos: [-24.5, WY, -9], size: [11, WALL_H, T], material: WALL }, // gap [-36..-30]
-    { pos: [-33, WY, -12], size: [6, WALL_H, T], material: WALL },
-    { pos: [-19, WY, -21.5], size: [T, WALL_H, 9], material: WALL },
-    { pos: [-19, WY, -10], size: [T, WALL_H, 2], material: WALL },
-    { pos: [-28, WY, -22], size: [4, WALL_H, 3], material: "planter", label: "Well" },
-    { pos: [-33, 0.95, -15], size: [2, 1.9, 2.4], material: "crate" },
-    { pos: [-23, 0.95, -23], size: [3, 1.9, 1.4], material: "crate" },
-    { pos: [-22, 0.6, -15.5], size: [2, 1.2, 2], material: "crate" },
+    { pos: [11, WY, 1.5], size: [T, WALL_H, 9], material: WALL }, // A short col|Mid wall x=11 z[-3..6] (A Short gap z[6..8] above)
+    { pos: [11, WY, -12.5], size: [T, WALL_H, 11], material: WALL }, // A short col|CT wall x=11 z[-18..-7]
+    { pos: [11, WY, -25.5], size: [T, WALL_H, 5], material: WALL }, // A short col|CT wall x=11 z[-28..-23] (CT→A gap z[-23..-18])
+    { pos: [24, WY, -2, ], size: [T, WALL_H, 8], material: WALL }, // A short col|A-site wall x=24 z[-6..2]
+    { pos: [24, WY, -16, ], size: [T, WALL_H, 8], material: WALL }, // A short col|A-site wall x=24 z[-20..-12] (A-short→site gap z[-12..-7]... wait z[-7..-12])
+    { pos: [24, WY, -25.5], size: [T, WALL_H, 5], material: WALL }, // A short col|A-site wall x=24 z[-28..-23]
+    // Staggered full-height stubs DOGLEG the short column so it never sees a long
+    // N/S line (Banana is the only long lane).
+    { pos: [15, WY, -3], size: [8, WALL_H, T], material: WALL }, // short-col stub x[11..19] z=-3 (gap x[19..24])
+    { pos: [20, WY, -13], size: [8, WALL_H, T], material: WALL }, // short-col stub x[16..24] z=-13 (gap x[11..16])
+    { pos: [21, 0.6, -8], size: [2, 1.2, 2], material: "crate" }, // A short col cover (Pit)
+    { pos: [14, 0.6, 2], size: [2, 1.2, 2], material: "planter" }, // A short col upper cover
 
     // ===================================================================
-    // CT SPAWN (north center, -Z) x∈[-19,19], z∈[-26,-9]. Two CT halls run
-    // E/W to the A/B doors (gaps z[-16,-11]). A central screen BLOCK
-    // (x[-7,7], z[-16,-11]) kills the door-to-door line; baffles split spawn
-    // from the halls; a back corridor (z∈[-26,-23]) joins them.
+    // A SITE — courtyard (north-east) x∈[24,38], z∈[-28,-6]. Held by CT/Arch.
+    // Fed by ARCH (north, z=-6 open via the Arch west wall ending) and A SHORT
+    // (west, x=24 gap z[-12,-7]). A full-height A Plat + crates break it.
     // ===================================================================
-    { pos: [0, WY, -13.5], size: [14, WALL_H, 5], material: WALL }, // CT screen BLOCK x[-7..7] z[-16..-11]
-    { pos: [-13, WY, -18.5], size: [T, WALL_H, 9], material: WALL }, // W baffle x=-13 z[-23..-14]
-    { pos: [13, WY, -18.5], size: [T, WALL_H, 9], material: WALL }, // E baffle x=13 z[-23..-14]
-    { pos: [0, 0.95, -19], size: [3, 1.9, 3], material: "crate" }, // center-cell breaker
-    { pos: [15, 0.6, -10.5], size: [2, 1.2, 2], material: "crate" }, // CT → A hall cover (by side gap)
-    { pos: [-15, 0.6, -10.5], size: [2, 1.2, 2], material: "crate" }, // CT → B hall cover
-    { pos: [6, 0.6, -24.5], size: [2, 1.2, 2], material: "crate" }, // CT spawn back cover E
-    { pos: [-6, 0.6, -24.5], size: [2, 1.2, 2], material: "crate" }, // CT spawn back cover W
+    { pos: [30, WY, -22], size: [4, WALL_H, 3], material: "greenhouse", label: "A Plat" }, // A plant landmark (full height)
+    { pos: [35, 0.95, -12], size: [2, 1.9, 2.2], material: "crate" }, // A back-east cover
+    { pos: [29, 0.95, -25], size: [3, 1.9, 1.4], material: "crate", label: "A Site" }, // A default-plant cover
+    { pos: [26, 0.6, -10], size: [2, 1.2, 2], material: "crate" }, // A short-entry cover
+
+    // ===================================================================
+    // CT SPAWN (north center, -Z) x∈[-24,11], z∈[-28,-9]. A central SCREEN
+    // stops the spawn↔mid line. CT rotates WEST to B DOORS and EAST to CT→A.
+    // Rotation cover + back pillars break the open box.
+    // ===================================================================
+    { pos: [-7, WY, -16.5], size: [10, WALL_H, 5], material: WALL }, // CT screen x[-12..-2] z[-19..-14]
+    { pos: [-11, 0.95, -23], size: [3, 1.9, 2.5], material: "crate" }, // CT spawn breaker (W side, off spawns)
+    { pos: [-19, WY, -25.5], size: [2, WALL_H, 2], material: WALL }, // CT back pillar W
+    { pos: [6, WY, -25.5], size: [2, WALL_H, 2], material: WALL }, // CT back pillar E
+    { pos: [-19, 0.6, -13], size: [2, 1.2, 2], material: "crate" }, // CT→B cover
+    { pos: [6, 0.6, -13], size: [2, 1.2, 2], material: "crate" }, // CT→A cover
   ],
   spawns: {
+    // The Spoilers (attackers) — in T SPAWN (south), facing north (yaw 0).
     spoilers: [
-      { pos: [-6, 0, 17], yaw: 0 },
-      { pos: [6, 0, 17], yaw: 0 },
-      { pos: [-4, 0, 24.5], yaw: 0 },
-      { pos: [4, 0, 24.5], yaw: 0 },
-      { pos: [0, 0, 21], yaw: 0 },
+      { pos: [-6, 0, 18], yaw: 0 },
+      { pos: [6, 0, 18], yaw: 0 },
+      { pos: [0, 0, 25], yaw: 0 },
+      { pos: [-20, 0, 22], yaw: 0 },
+      { pos: [17, 0, 22], yaw: 0 },
     ],
+    // Garden Guard (defenders) — in CT SPAWN (north), facing south (yaw PI).
     guard: [
-      { pos: [-6, 0, -17], yaw: Math.PI },
-      { pos: [6, 0, -17], yaw: Math.PI },
-      { pos: [-4, 0, -24.5], yaw: Math.PI },
-      { pos: [4, 0, -24.5], yaw: Math.PI },
-      { pos: [0, 0, -21], yaw: Math.PI },
+      { pos: [-5, 0, -22], yaw: Math.PI },
+      { pos: [2, 0, -22], yaw: Math.PI },
+      { pos: [-16, 0, -23], yaw: Math.PI },
+      { pos: [7, 0, -23], yaw: Math.PI },
+      { pos: [-5, 0, -26], yaw: Math.PI },
     ],
   },
   sites: {
-    A: { center: [29, 0, -17], radius: 5 },
-    B: { center: [-29, 0, -17], radius: 5 },
+    // A = EAST (courtyard, tighter via Arch), B = WEST (Well, end of Banana).
+    A: { center: [29, 0, -22], radius: 5 },
+    B: { center: [-30, 0, -20], radius: 5 },
   },
   navNodes: [
-    // --- T spawn (West / Center / East cells + back corridor) ---
-    [-6, 0, 17], //  0  center cell west (spawn)
-    [6, 0, 17], //  1  center cell east (spawn)
-    [0, 0, 24.5], //  2  back corridor center
-    [-23, 0, 24], //  3  West corridor (NW)
-    [23, 0, 24], //  4  East corridor (NE)
-    [-22, 0, 16], //  5  B mouth door
-    [22, 0, 16], //  6  A mouth door
-    [0, 0, 14.5], //  7  T center door
-    // --- mid (weave between the trees) ---
-    [-3, 0, 12], //  8  mid center north (in front of grove, off boost)
-    [12, 0, 11], //  9  mid NE
-    [-12, 0, 11], // 10  mid NW
-    [19, 0, 10.5], // 11  mid→A connector door (gap z[9,12])
-    [-19, 0, 10.5], // 12  mid→B connector door
-    [16.5, 0, 3.5], // 13  mid east corridor (x[14,19], between grove flank & A wall)
-    [-16.5, 0, 3.5], // 14  mid west corridor
-    [17, 0, -3], // 15  mid SE pocket
-    [-17, 0, -3], // 16  mid SW pocket
-    [15, 0, -7], // 17  mid→CT side gap east (x[13,19] at z=-9)
-    [-15, 0, -7], // 18  mid→CT side gap west
-    // --- A lane S-bend ---
-    [20, 0, 9], // 19  A lane top (inner gap x[19,21], N of outer stub z=7.5)
-    [20, 0, 4], // 20  A lane inner squeeze (S of outer stub)
-    [28, 0, 2], // 21  A lane middle
-    [35, 0, 2], // 22  A lane outer (N of inner stub z=-1, in outer gap)
-    [35, 0, -5], // 23  A lane lower outer
-    [32, 0, -7], // 24  A lane → site gap (z=-9 at x[30,36])
-    // --- B lane mirror ---
-    [-20, 0, 9], // 25
-    [-20, 0, 4], // 26
-    [-28, 0, 2], // 27
-    [-35, 0, 2], // 28
-    [-35, 0, -5], // 29
-    [-32, 0, -7], // 30
-    // --- A site ---
-    [32, 0, -10.5], // 31  A site lane-entry (top strip, N of jog z=-12)
-    [28, 0, -11.5], // 32  A site funnel (W of jog, x<30)
-    [28, 0, -16], // 33  A site center floor
-    [21, 0, -13], // 34  A CT door (gap x=19 z[-17,-11])
-    // --- B site ---
-    [-32, 0, -10.5], // 35
-    [-28, 0, -11.5], // 36
-    [-28, 0, -16], // 37
-    [-21, 0, -13], // 38
-    // --- CT spawn + halls ---
-    [17, 0, -10.5], // 39  CT A-hall mouth (by side gap, E of cover)
-    [-17, 0, -10.5], // 40  CT B-hall mouth
-    [16, 0, -15], // 41  CT A-hall (E of screen, → A CT door)
-    [-16, 0, -15], // 42  CT B-hall
-    [0, 0, -24.5], // 43  CT back corridor center (spawn)
-    [-16, 0, -24], // 44  CT B-hall back
-    [16, 0, -24], // 45  CT A-hall back
-    [-6, 0, -17], // 46  CT center cell west (spawn)
-    [6, 0, -17], // 47  CT center cell east (spawn)
+    // --- T SPAWN (center + W/E cells via offset divider doors) + mouths ---
+    [-6, 0, 18], //  0  center-W spawn
+    [6, 0, 18], //  1  center-E spawn
+    [0, 0, 25], //  2  center-back spawn
+    [-13, 0, 24.25], //  3  W divider door (z[23..25.5]) → west cell
+    [11, 0, 26.5], //  4  E divider door (z[25..28]) → east cell
+    [-27, 0, 16.5], //  5  Banana mouth (W cell, front wall gap x[-30..-24])
+    [0, 0, 16.5], //  6  Mid mouth (center, front wall)
+    [29, 0, 16.5], //  7  Apartments mouth (E cell, front wall gap x[26..32])
+    // --- BANANA → B site (signature lane) ---
+    [-28, 0, 11], //  8  Banana top (E lane, by cover)
+    [-28, 0, 1], //  9  Banana middle
+    [-27, 0, -8], // 10  Banana lower (→ B-site mouth gap z[-8..-4])
+    // --- MID → A Short ---
+    [0, 0, 12], // 11  mid top (N of tree)
+    [6, 0, 11], // 12  mid NE (toward A Short)
+    [8, 0, 7], // 13  A Short (mid x=11 gap z[6..8])
+    [-3, 0, -2], // 14  mid SW (S of tree, toward Mid→CT)
+    [-6, 0, -7], // 15  Mid→CT gap (x[-8..-3] z=-9)
+    // --- APARTMENTS → ARCH → A site ---
+    [31, 0, 11], // 16  Apartments top (E of mouth)
+    [26, 0, 5], // 17  Apartments lower (toward Apts→Arch gap x[24..29])
+    [27, 0, -1], // 18  Arch (through Apts→Arch gap z=2)
+    [29, 0, -8], // 19  Arch → A site north (S of z=-6)
+    // --- A SHORT column (doglegged) → A site ---
+    [13, 0, 6], // 20  A Short (S of mid x=11 gap z[6..8])
+    [21, 0, -1], // 21  A short col bend (gap x[19..24] at z=-3 stub)
+    // --- A SITE (court x[24,38] z[-28,-6]) ---
+    [28, 0, -11], // 22  A site north
+    [27, 0, -24], // 23  A site center (plant node, W of A Plat)
+    [35, 0, -22], // 24  A site east
+    [26, 0, -8], // 25  A site west / A-short entry (x=24 gap z[-12..-6])
+    // --- B SITE ---
+    [-28, 0, -12], // 26  B site entry (from banana mouth gap, just N of B site)
+    [-29, 0, -18], // 27  B site center (plant node, E of Well)
+    [-36, 0, -20], // 28  B site back-west (N of Well)
+    [-21, 0, -19], // 29  B Doors (CT side, x=-24 gap z[-22..-17])
+    // --- CT SPAWN + rotations ---
+    [-5, 0, -22], // 30  CT spawn center (guard spawn)
+    [2, 0, -22], // 31  CT spawn east (guard spawn)
+    [0, 0, -12], // 32  CT center (N of screen, E side)
+    [5, 0, -16], // 33  CT→A rotation (E, near x=11 gap z[-23..-18])
+    [-19, 0, -15], // 34  CT→B rotation → B Doors
+    [-3, 0, -11], // 35  CT mid link (→ Mid→CT gap)
+    // --- bend nodes ---
+    [-29, 0, 16], // 36  Banana mouth → banana bend
+    [21, 0, -10], // 37  A short col mid (→ A site via x=24 gap z[-6..-12])
+    [-23, 0, -17], // 38  B Doors interior (B-site side)
+    [33, 0, 6], // 39  Apartments mid bend
+    [13, 0, -20], // 40  A short col bottom (CT→A, through x=11 gap z[-23..-18])
+    [13, 0, -10], // 41  A short col mid-west (links bottom ↔ mid via z=-13 stub gap x[11..16])
   ],
   navEdges: [
-    // --- T spawn ---
-    [0, 7],
-    [1, 7],
+    // --- T spawn → three mouths ---
+    [0, 6],
+    [1, 6],
     [0, 2],
     [1, 2],
+    [0, 3],
+    [1, 4],
+    [3, 5], // → Banana mouth
+    [4, 7], // → Apartments mouth
     [2, 3],
     [2, 4],
-    [3, 5],
-    [4, 6],
-    // --- mid ---
-    [7, 8],
+    // --- Banana → B site (signature lane) ---
+    [5, 36],
+    [36, 8],
     [8, 9],
-    [8, 10],
     [9, 10],
-    [9, 11],
-    [10, 12],
-    [11, 13],
-    [13, 15],
-    [12, 14],
-    [14, 16],
-    [15, 17],
-    [16, 18],
-    [17, 39],
-    [18, 40],
-    // --- A lane ---
-    [6, 19],
-    [11, 19],
-    [19, 20],
-    [20, 21],
-    [21, 22],
-    [22, 23],
-    [23, 24],
-    [24, 31],
-    [31, 32],
-    [32, 33],
-    // --- B lane ---
-    [5, 25],
-    [12, 25],
-    [25, 26],
+    [10, 26], // banana → B site (through mouth gap)
+    // --- Mid → A Short ---
+    [6, 11],
+    [11, 12],
+    [12, 13], // → A Short (mid side of x=11 gap z[6..8])
+    [13, 20], // → A short col top (A side of gap)
+    [20, 21], // → A short col upper (through z=-3 stub gap x[19..24])
+    [11, 14],
+    [14, 15], // → Mid→CT gap
+    [15, 35], // → CT mid link
+    // --- Apartments → Arch → A site ---
+    [7, 16],
+    [16, 39],
+    [39, 17],
+    [17, 18], // → Arch (through Apts→Arch gap z=2)
+    [18, 19], // Arch → A site north
+    [19, 22], // → A site north
+    // --- A short column (doglegged) → A site / CT ---
+    [21, 37], // col upper → col mid (x[19..24])
+    [37, 25], // col mid → A site (through x=24 gap z[-6..-12])
+    [37, 41], // col mid → col mid-west (through z=-13 stub gap x[11..16])
+    [41, 40], // → col bottom
+    [40, 33], // col bottom → CT→A rotation (through x=11 gap z[-23..-18])
+    // --- A site internal ---
+    [22, 25], // north ↔ west entry
+    [22, 24], // north ↔ east (around A Plat)
+    [22, 23], // north ↔ center
+    [25, 23], // west entry ↔ center
+    // --- B site internal ---
     [26, 27],
     [27, 28],
-    [28, 29],
-    [29, 30],
-    [30, 35],
-    [35, 36],
-    [36, 37],
-    // --- CT spawn → halls → doors → sites ---
-    [43, 46],
-    [43, 47],
-    [43, 44],
-    [43, 45],
-    [44, 42],
-    [45, 41],
-    [41, 39],
-    [42, 40],
-    [41, 34],
-    [42, 38],
-    [34, 32],
-    [38, 36],
+    [27, 29], // → B Doors
+    [29, 38],
+    // --- CT spawn → rotations → doors → sites ---
+    [30, 31], // CT spawn W ↔ E
+    [31, 32], // CT spawn E → CT center (around screen E side)
+    [32, 35], // CT center ↔ CT mid link
+    [32, 33], // CT center → A rotation
+    [35, 34], // CT mid link → B rotation
+    [34, 29], // B rotation → B Doors
+    [34, 38], // → B Doors interior
+    [38, 27], // → B site center
   ],
 };
