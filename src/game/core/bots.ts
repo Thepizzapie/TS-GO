@@ -13,6 +13,7 @@ import type {
   PlayerInput,
   PlayerState,
   ShotMsg,
+  TeamId,
   ThrowMsg,
   Vec3,
   WeaponId,
@@ -52,6 +53,12 @@ interface BotMem {
   lastZ: number;
   stuckT: number;
   unstickUntil: number;
+  // objective roles (reset each round via siteRound)
+  assignedSite: "A" | "B" | null; // defender patrol assignment
+  targetSite: "A" | "B" | null; // carrier's chosen attack site
+  siteRound: number;
+  patrolNode: number; // current patrol waypoint (defenders)
+  patrolUntil: number;
 }
 
 const mems = new Map<string, BotMem>();
@@ -77,6 +84,11 @@ function mem(id: string, p: PlayerState): BotMem {
       lastZ: p.pos[2],
       stuckT: 0,
       unstickUntil: 0,
+      assignedSite: null,
+      targetSite: null,
+      siteRound: -1,
+      patrolNode: -1,
+      patrolUntil: 0,
     };
     mems.set(id, m);
   }
@@ -181,24 +193,73 @@ const blankInput = (yaw: number, pitch: number): PlayerInput => ({
   t: 0,
 });
 
-function chooseGoalNode(state: GameState, bot: PlayerState, map: MapDef): number {
-  const dm = state.config.mode === "deathmatch";
-  if (dm) {
-    // hunt the nearest enemy's nearest node
+function findCarrier(state: GameState, team: TeamId): PlayerState | null {
+  for (const p of Object.values(state.players)) if (p.alive && p.team === team && p.hasBomb) return p;
+  return null;
+}
+
+/** Nav node indices on/around a bombsite (the room + its entrances). */
+function siteNodes(map: MapDef, site: "A" | "B"): number[] {
+  const c = map.sites[site].center;
+  const r = map.sites[site].radius + 7;
+  const out: number[] = [];
+  for (let i = 0; i < map.navNodes.length; i++) if (distXZ(map.navNodes[i], c) < r) out.push(i);
+  return out.length ? out : [nearestNode(map, c)];
+}
+
+function randomSiteNode(map: MapDef, site: "A" | "B", avoid: number): number {
+  const ns = siteNodes(map, site);
+  if (ns.length === 1) return ns[0];
+  let n = ns[Math.floor(Math.random() * ns.length)];
+  if (n === avoid) n = ns[(ns.indexOf(n) + 1) % ns.length];
+  return n;
+}
+
+/** Carrier (and carrier-less stragglers) commit to a random site for the round. */
+function pickRandomSite(m: BotMem, state: GameState): "A" | "B" {
+  if (m.targetSite == null || m.siteRound !== state.roundNumber) {
+    m.siteRound = state.roundNumber;
+    m.targetSite = Math.random() < 0.5 ? "A" : "B";
+  }
+  return m.targetSite;
+}
+
+function chooseGoalNode(state: GameState, bot: PlayerState, map: MapDef, m: BotMem): number {
+  if (state.config.mode === "deathmatch") {
     const enemy = nearestEnemy(state, bot);
     return enemy ? nearestNode(map, enemy.pos) : Math.floor(Math.random() * map.navNodes.length);
   }
-  const sites = Object.values(map.sites);
+  const b = state.bomb;
+
+  // ---- Attackers (Spoilers) ----
   if (bot.team === "spoilers") {
-    if (state.bomb.planted && state.bomb.pos) return nearestNode(map, state.bomb.pos);
-    // push toward a site (carrier-biased)
-    const site = sites[bot.id.charCodeAt(bot.id.length - 1) % sites.length];
-    return nearestNode(map, site.center);
+    if (b.planted && b.pos) return nearestNode(map, b.pos); // defend the plant
+    if (b.dropped && b.pos) return nearestNode(map, b.pos); // recover a dropped bomb
+    if (bot.hasBomb) {
+      // the carrier picks a RANDOM site and commits — the team follows it there
+      return nearestNode(map, map.sites[pickRandomSite(m, state)].center);
+    }
+    // escort: stay near the bomb carrier so the team pushes a site together
+    const carrier = findCarrier(state, "spoilers");
+    if (carrier) return nearestNode(map, carrier.pos);
+    // no carrier alive → fall back to a committed site
+    return nearestNode(map, map.sites[pickRandomSite(m, state)].center);
   }
-  // guard: defend / retake
-  if (state.bomb.planted && state.bomb.pos) return nearestNode(map, state.bomb.pos);
-  const site = sites[bot.id.charCodeAt(bot.id.length - 1) % sites.length];
-  return nearestNode(map, site.center);
+
+  // ---- Defenders (Guard): patrol an assigned site ----
+  if (b.planted && b.pos) return nearestNode(map, b.pos); // rotate to retake/defuse
+  if (m.assignedSite == null || m.siteRound !== state.roundNumber) {
+    m.siteRound = state.roundNumber;
+    // split defenders across both sites for coverage (by id), not all on one
+    m.assignedSite = bot.id.charCodeAt(bot.id.length - 1) % 2 === 0 ? "A" : "B";
+    m.patrolNode = -1;
+  }
+  // roam between the site's positions instead of standing on the center
+  if (m.patrolNode < 0 || m.patrolNode >= map.navNodes.length || state.now >= m.patrolUntil) {
+    m.patrolNode = randomSiteNode(map, m.assignedSite, m.patrolNode);
+    m.patrolUntil = state.now + 2500 + Math.random() * 2500;
+  }
+  return m.patrolNode;
 }
 
 function nearestEnemy(state: GameState, bot: PlayerState): PlayerState | null {
@@ -388,7 +449,7 @@ function navigate(state: GameState, bot: PlayerState, map: MapDef, m: BotMem, in
 
   const stalePath = m.pathIdx >= m.path.length || (m.path[m.pathIdx] ?? nodeCount) >= nodeCount;
   if (state.now >= m.repathAt || m.path.length === 0 || stalePath) {
-    m.goalNode = chooseGoalNode(state, bot, map);
+    m.goalNode = chooseGoalNode(state, bot, map, m);
     m.path = bfs(adj, nearestReachableNode(map, bot.pos), m.goalNode);
     m.pathIdx = 0;
     m.repathAt = state.now + 1500 + Math.random() * 1500;
