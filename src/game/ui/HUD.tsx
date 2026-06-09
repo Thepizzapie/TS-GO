@@ -149,9 +149,23 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
       {game.phase === "roundEnd" && <RoundBanner game={game} myTeam={me?.team} />}
       {game.phase === "matchEnd" && <MatchBanner engine={engine} onLeave={onLeave} />}
 
-      {/* ---- Death notice ---- */}
+      {/* ---- Death / spectate screen ---- */}
       {me && !me.alive && game.phase !== "matchEnd" && (
-        <div style={H.deadNotice}>{dm ? "Respawning…" : "You got blended. Spectating…"}</div>
+        <div style={H.deathScreen}>
+          <div style={H.deathTitle}>{dm ? "RESPAWNING…" : "BLENDED"}</div>
+          {(() => {
+            const k = [...game.killFeed].reverse().find((e) => e.victim === myId);
+            return k && k.killer ? (
+              <div style={H.deathSub}>
+                by{" "}
+                <span style={{ color: k.killerTeam ? TEAM_COLOR[k.killerTeam] : "#fff" }}>{k.killerName}</span>{" "}
+                with {WEAPONS[k.weapon]?.name ?? "?"}
+                {k.headshot ? " ✷" : ""}
+              </div>
+            ) : null;
+          })()}
+          {!dm && <div style={H.deathHint}>Spectating a teammate · click to switch · Esc for menu</div>}
+        </div>
       )}
 
       {/* ---- Overlays ---- */}
@@ -475,6 +489,10 @@ const H: Record<string, React.CSSProperties> = {
   buyHint: { position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)", fontSize: "0.85rem", color: "var(--ink-dim)" },
   kbd: { background: "var(--bg-3)", border: "1px solid var(--panel-edge)", borderRadius: 4, padding: "1px 6px", fontFamily: "var(--font-display)" },
   deadNotice: { position: "absolute", top: "44%", left: "50%", transform: "translateX(-50%)", fontSize: "1.1rem", color: "var(--tomato)", background: "rgba(8,12,8,0.6)", padding: "6px 14px", borderRadius: 8 },
+  deathScreen: { position: "absolute", top: "40%", left: "50%", transform: "translate(-50%,-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center", background: "rgba(8,12,8,0.55)", padding: "14px 30px", borderRadius: 12, border: "1px solid rgba(255,59,48,0.35)", backdropFilter: "blur(4px)" },
+  deathTitle: { fontFamily: "var(--font-display)", fontSize: "2rem", fontWeight: 700, color: "var(--tomato)", letterSpacing: "0.06em" },
+  deathSub: { fontSize: "0.95rem", color: "var(--ink-dim)", fontFamily: "var(--font-body)" },
+  deathHint: { fontSize: "0.74rem", color: "var(--ink-faint)" },
   bannerWrap: { ...overlayBase, top: "30%", bottom: "auto" },
   banner: { textAlign: "center", padding: "1rem 2rem", background: "rgba(8,12,8,0.8)", border: "2px solid", borderRadius: 12, backdropFilter: "blur(8px)" },
   clickToPlay: { ...overlayBase, pointerEvents: "auto", cursor: "pointer", background: "rgba(5,8,5,0.3)" },

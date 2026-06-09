@@ -53,6 +53,7 @@ export function LocalController({ engine }: { engine: GameEngine }) {
   const prevGround = useRef(true);
   const fallVel = useRef(0);
   const landDip = useRef(0);
+  const spectateId = useRef<string | null>(null);
 
   // --- input listeners ------------------------------------------------------
   useEffect(() => {
@@ -89,7 +90,11 @@ export function LocalController({ engine }: { engine: GameEngine }) {
       if (e.code === "Tab") ui().setUi({ scoreboard: false });
     };
     const onMouseDown = (e: MouseEvent) => {
-      if (e.button === 0) mouseDown.current = true;
+      if (e.button === 0) {
+        mouseDown.current = true;
+        const m = engine.me;
+        if (m && !m.alive) cycleSpectate(); // click to switch spectated teammate
+      }
       if (e.button === 2) ads.current = true;
     };
     const onMouseUp = (e: MouseEvent) => {
@@ -181,6 +186,7 @@ export function LocalController({ engine }: { engine: GameEngine }) {
     }
     const scoped = aiming && isSniper && cam.fov < baseFov * 0.62;
     if (store.scoped !== scoped) store.setUi({ scoped });
+    if (store.aiming !== aiming) store.setUi({ aiming });
 
     // ---- recoil recovery ----
     const rec = mouseDown.current ? 0.95 : 0.84;
@@ -220,11 +226,27 @@ export function LocalController({ engine }: { engine: GameEngine }) {
     prevGround.current = me.onGround;
     landDip.current *= 1 - Math.min(1, dt * 9);
 
-    // ---- camera: position + look + shake ----
+    // ---- camera: position + look + shake (spectate a teammate when dead) ----
     const eye = eyePos(me);
-    camera.position.set(eye[0], eye[1] - landDip.current, eye[2]);
+    let camX = eye[0];
+    let camY = eye[1] - landDip.current;
+    let camZ = eye[2];
+    let camYaw = yaw;
+    let camPitch = pitch;
+    if (!me.alive && engine.state.config.mode !== "deathmatch" && engine.state.phase !== "matchEnd") {
+      const t = pickSpectate();
+      if (t) {
+        const te = eyePos(t);
+        camX = te[0];
+        camY = te[1];
+        camZ = te[2];
+        camYaw = t.yaw;
+        camPitch = t.pitch;
+      }
+    }
     const sh = sampleShake(dt);
-    camera.rotation.set(pitch + sh.pitch, -yaw + sh.yaw, sh.roll);
+    camera.position.set(camX, camY, camZ);
+    camera.rotation.set(camPitch + sh.pitch, -camYaw + sh.yaw, sh.roll);
 
     // ---- footsteps ----
     const speed = Math.hypot(me.vel[0], me.vel[2]);
@@ -246,6 +268,27 @@ export function LocalController({ engine }: { engine: GameEngine }) {
     if (active && me.alive) handleFire(me, eye, yaw, pitch, aiming);
     prevMouse.current = mouseDown.current;
   });
+
+  function pickSpectate(): PlayerState | null {
+    const m = engine.me;
+    if (!m) return null;
+    const mates = Object.values(engine.state.players).filter((p) => p.id !== m.id && p.team === m.team && p.alive);
+    if (!mates.length) return null;
+    let t = spectateId.current ? engine.state.players[spectateId.current] : null;
+    if (!t || !t.alive || t.team !== m.team) {
+      t = mates[0];
+      spectateId.current = t.id;
+    }
+    return t;
+  }
+  function cycleSpectate() {
+    const m = engine.me;
+    if (!m) return;
+    const mates = Object.values(engine.state.players).filter((p) => p.id !== m.id && p.team === m.team && p.alive);
+    if (!mates.length) return;
+    const idx = mates.findIndex((p) => p.id === spectateId.current);
+    spectateId.current = mates[(idx + 1) % mates.length].id;
+  }
 
   function tryThrow(me: PlayerState, eye: Vec3, yaw: number, pitch: number) {
     const nade = me.inventory.find((i) => WEAPONS[i.id].slot === "grenade");
@@ -289,6 +332,9 @@ export function LocalController({ engine }: { engine: GameEngine }) {
     const pellets = Math.max(1, w.pellets);
     const others = Object.values(engine.state.players);
     const boxes = getMap(engine.state.config.mapId).boxes;
+    const smokes = engine.state.fx.length
+      ? engine.state.fx.filter((f) => f.kind === "smoke").map((f) => ({ pos: [f.pos[0], 1.6, f.pos[2]] as Vec3, radius: f.radius }))
+      : [];
     const hits: ShotMsg["hits"] = [];
     let firstDir = aimDir(yaw, pitch);
     let didHit = false;
@@ -300,7 +346,7 @@ export function LocalController({ engine }: { engine: GameEngine }) {
       const jp = clamp(pitch + (Math.random() - 0.5) * 2 * sd, -1.5, 1.5);
       const dir = aimDir(jy, jp);
       if (p === 0) firstDir = dir;
-      const hit = raycastPlayers(eye, dir, range, others, me.id, 0.42, playerHeight(me), boxes);
+      const hit = raycastPlayers(eye, dir, range, others, me.id, 0.42, playerHeight(me), boxes, smokes);
       if (hit && hit.player.team !== me.team) {
         hits.push({ id: hit.player.id, headshot: hit.headshot, dist: hit.dist });
         const dr = computeDamage(me.currentWeapon, hit.dist, hit.headshot, hit.player.armor, hit.player.helmet);

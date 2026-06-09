@@ -185,8 +185,17 @@ function nearestEnemy(state: GameState, bot: PlayerState): PlayerState | null {
   return best;
 }
 
+/** Smoke volumes as sight-blocking spheres (centered at eye height). */
+function smokesOf(state: GameState): { pos: Vec3; radius: number }[] {
+  if (!state.fx.length) return [];
+  return state.fx
+    .filter((f) => f.kind === "smoke")
+    .map((f) => ({ pos: [f.pos[0], 1.6, f.pos[2]] as Vec3, radius: f.radius }));
+}
+
 function acquireTarget(state: GameState, bot: PlayerState, map: MapDef): PlayerState | null {
   const eye = eyePos(bot);
+  const smokes = smokesOf(state);
   const range = 55 * (0.6 + 0.4 * bot.botSkill);
   let best: PlayerState | null = null;
   let bd = Infinity;
@@ -197,7 +206,7 @@ function acquireTarget(state: GameState, bot: PlayerState, map: MapDef): PlayerS
     // generous frontal awareness (~230°)
     const toYaw = yawTo(bot.pos, p.pos);
     if (Math.abs(angleDelta(bot.yaw, toYaw)) > 2.0) continue;
-    if (!hasLineOfSight(eye, eyePos(p), map.boxes)) continue;
+    if (!hasLineOfSight(eye, eyePos(p), map.boxes, smokes)) continue;
     bd = d;
     best = p;
   }
@@ -230,7 +239,7 @@ export function botThink(state: GameState, bot: PlayerState, map: MapDef, dt: nu
   let target: PlayerState | null = null;
   if (m.targetId) {
     const t = state.players[m.targetId];
-    if (t && t.alive && hasLineOfSight(eyePos(bot), eyePos(t), map.boxes)) target = t;
+    if (t && t.alive && hasLineOfSight(eyePos(bot), eyePos(t), map.boxes, smokesOf(state))) target = t;
   }
   if (!target) {
     target = acquireTarget(state, bot, map);
@@ -336,7 +345,7 @@ function makeShot(state: GameState, bot: PlayerState, map: MapDef): ShotMsg | nu
   const pitch = clamp(bot.pitch + jitter(errDeg), -1.3, 1.3);
   const dir = aimDir(yaw, pitch);
   const others = Object.values(state.players);
-  const hit = raycastPlayers(eye, dir, w.range, others, bot.id, PLAYER_RADIUS, STAND_HEIGHT, map.boxes);
+  const hit = raycastPlayers(eye, dir, w.range, others, bot.id, PLAYER_RADIUS, STAND_HEIGHT, map.boxes, smokesOf(state));
   const hits = hit && hit.player.team !== bot.team ? [{ id: hit.player.id, headshot: hit.headshot, dist: hit.dist }] : [];
   return { weapon: bot.currentWeapon, origin: eye, dir, hits };
 }

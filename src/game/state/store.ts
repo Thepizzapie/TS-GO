@@ -95,6 +95,7 @@ interface StoreState {
   pointerLocked: boolean;
   settingsOpen: boolean;
   scoped: boolean;
+  aiming: boolean;
 
   // settings
   settings: Settings;
@@ -107,7 +108,7 @@ interface StoreState {
   setPendingConfig: (c: Partial<MatchConfig>) => void;
   setGame: (g: GameState | null) => void;
   setUi: (
-    p: Partial<{ buyOpen: boolean; scoreboard: boolean; paused: boolean; pointerLocked: boolean; settingsOpen: boolean; scoped: boolean }>
+    p: Partial<{ buyOpen: boolean; scoreboard: boolean; paused: boolean; pointerLocked: boolean; settingsOpen: boolean; scoped: boolean; aiming: boolean }>
   ) => void;
   setSettings: (s: Partial<Settings>) => void;
   reset: () => void;
@@ -128,6 +129,7 @@ export const useGameStore = create<StoreState>((set, get) => ({
   pointerLocked: false,
   settingsOpen: false,
   scoped: false,
+  aiming: false,
   settings: loadSettings(),
 
   setScreen: (screen) => set({ screen }),

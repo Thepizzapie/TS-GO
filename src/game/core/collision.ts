@@ -111,6 +111,38 @@ export interface PlayerHit {
   point: Vec3;
 }
 
+/** A smoke volume that blocks sight + bullets (sphere center + radius). */
+export interface Smoke {
+  pos: Vec3;
+  radius: number;
+}
+
+/** First ray-sphere intersection distance, or -1. */
+function raySphere(o: Vec3, d: Vec3, c: Vec3, r: number): number {
+  const ox = o[0] - c[0];
+  const oy = o[1] - c[1];
+  const oz = o[2] - c[2];
+  const b = ox * d[0] + oy * d[1] + oz * d[2];
+  const cc = ox * ox + oy * oy + oz * oz - r * r;
+  const disc = b * b - cc;
+  if (disc < 0) return -1;
+  const sq = Math.sqrt(disc);
+  const t1 = -b - sq;
+  if (t1 >= 0) return t1;
+  const t2 = -b + sq;
+  return t2 >= 0 ? t2 : -1;
+}
+
+/** Nearest distance at which a smoke volume blocks the ray (or Infinity). */
+function smokeBlockDist(o: Vec3, d: Vec3, smokes: Smoke[]): number {
+  let best = Infinity;
+  for (const s of smokes) {
+    const t = raySphere(o, d, s.pos, s.radius);
+    if (t >= 0 && t < best) best = t;
+  }
+  return best;
+}
+
 /**
  * Ray vs a single player, modeled as a vertical cylinder (radius `r`) from the
  * player's feet to `height`. Returns the hit or null. Headshots register in the
@@ -159,25 +191,30 @@ export function raycastPlayers(
   excludeId: string,
   radius: number,
   height: number,
-  boxes: MapBox[]
+  boxes: MapBox[],
+  smokes: Smoke[] = []
 ): PlayerHit | null {
   const wall = raycastWorld(origin, dir, maxDist, boxes);
+  const smoke = smokes.length ? smokeBlockDist(origin, dir, smokes) : Infinity;
+  const blocked = Math.min(wall, smoke);
   let best: PlayerHit | null = null;
   for (const p of players) {
     if (p.id === excludeId || !p.alive) continue;
     const ph = p.crouching ? rayPlayer(origin, dir, maxDist, p, radius, height * 0.66) : rayPlayer(origin, dir, maxDist, p, radius, height);
-    if (ph && ph.dist < wall && (!best || ph.dist < best.dist)) best = ph;
+    if (ph && ph.dist < blocked && (!best || ph.dist < best.dist)) best = ph;
   }
   return best;
 }
 
-/** Line-of-sight test between two points (true if unobstructed by world). */
-export function hasLineOfSight(from: Vec3, to: Vec3, boxes: MapBox[]): boolean {
+/** Line-of-sight test between two points (blocked by world walls or smoke). */
+export function hasLineOfSight(from: Vec3, to: Vec3, boxes: MapBox[], smokes: Smoke[] = []): boolean {
   const dx = to[0] - from[0];
   const dy = to[1] - from[1];
   const dz = to[2] - from[2];
   const d = Math.hypot(dx, dy, dz);
   if (d < 1e-6) return true;
   const dir: Vec3 = [dx / d, dy / d, dz / d];
-  return raycastWorld(from, dir, d - 0.05, boxes) >= d - 0.06;
+  if (raycastWorld(from, dir, d - 0.05, boxes) < d - 0.06) return false;
+  if (smokes.length && smokeBlockDist(from, dir, smokes) < d - 0.06) return false;
+  return true;
 }

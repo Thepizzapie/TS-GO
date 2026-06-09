@@ -14,6 +14,7 @@ import { RemotePlayers } from "./RemotePlayers";
 import { WorldEntities } from "./WorldEntities";
 import { Effects } from "./Effects";
 import { Viewmodel } from "./Viewmodel";
+import { GrenadeArc } from "./GrenadeArc";
 import { LocalController } from "./LocalController";
 import { FxAudio } from "./FxAudio";
 import { PostFX } from "./PostFX";
@@ -28,6 +29,7 @@ export function Scene({ engine }: { engine: GameEngine }) {
       <RemotePlayers engine={engine} />
       <WorldEntities engine={engine} />
       <Effects engine={engine} />
+      <GrenadeArc engine={engine} />
       <Viewmodel engine={engine} />
 
       <LocalController engine={engine} />
