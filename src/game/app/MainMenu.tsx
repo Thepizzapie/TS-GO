@@ -1,8 +1,10 @@
 "use client";
 /**
- * MainMenu — match setup + entry point. Styled with the global design tokens.
- * Online host/join slots in via the optional handlers (wired once the PeerJS
- * transport lands).
+ * MainMenu — attract-screen style match setup.
+ * Full arcade pixel redesign: scanline/pixel-grid backdrop, stacked wordmark,
+ * toggle tiles for mode/map, stepped slider track, high-score-entry callsign,
+ * coin-op letter-spaced room-code input, kbd footer hints.
+ * ALL handlers/flows preserved exactly from the previous version.
  */
 import { useState } from "react";
 import Link from "next/link";
@@ -10,6 +12,8 @@ import { useGameStore } from "@/game/state/store";
 import { GAME_MODES } from "@/game/core/types";
 import { MAP_LIST } from "@/game/core/maps";
 import type { GameMode } from "@/game/core/types";
+import { PixelPanel } from "@/components/arcade/PixelPanel";
+import { ArcadeButton } from "@/components/arcade/ArcadeButton";
 
 export function MainMenu({
   onStartSolo,
@@ -26,220 +30,207 @@ export function MainMenu({
   const setCfg = useGameStore((s) => s.setPendingConfig);
   const [joinCode, setJoinCode] = useState("");
 
+  const botSkillLabel = [
+    "SPROUT", "SPROUT", "RIPE", "RIPE",
+    "VINE VET", "VINE VET", "HEIRLOOM",
+  ][Math.round(cfg.botSkill * 6)];
+
   return (
     <main style={S.root}>
-      {/* Ambient glow layers */}
-      <div style={S.bgGlow} />
-      <div style={S.bgGrid} />
+      {/* Pixel-grid + scanline backdrop */}
+      <div style={S.backdrop} aria-hidden="true">
+        <div style={S.pixelGrid} />
+        <div style={S.scanlines} />
+      </div>
 
+      {/* Header */}
       <header style={S.header}>
-        <Link href="/" style={S.brand}>
-          <span style={{ color: "var(--tomato)", textShadow: "var(--glow-tomato)" }}>TOMATO</span>
-          <span style={{ color: "var(--leaf)", textShadow: "var(--glow-leaf)", marginLeft: "0.18em" }}>STRIKE</span>
+        {/* Stacked wordmark */}
+        <Link href="/" style={S.wordmarkLink} aria-label="Tomato Strike — home">
+          <div style={S.wordmarkTomato}>TOMATO</div>
+          <div style={S.wordmarkStrike}>STRIKE</div>
         </Link>
+
         <nav style={S.headerNav}>
-          <button
-            style={S.navBtn}
+          <ArcadeButton
+            variant="ghost"
+            size="sm"
             onClick={() => useGameStore.getState().setUi({ settingsOpen: true })}
             aria-label="Open settings"
           >
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 15 15" fill="none" aria-hidden="true">
               <path d="M7.5 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" strokeWidth="1.2"/>
               <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M2.9 2.9l1.06 1.06M11.04 11.04l1.06 1.06M2.9 12.1l1.06-1.06M11.04 3.96l1.06-1.06" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
             </svg>
-            Settings
-          </button>
-          <Link href="/" style={S.navBtn}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-              <path d="M8.5 11.5 4 7l4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Home
+            SETTINGS
+          </ArcadeButton>
+          <Link href="/" style={S.navLinkBtn}>
+            <span style={S.navBtnInner}>◀ HOME</span>
           </Link>
         </nav>
       </header>
 
+      {/* Two-panel grid */}
       <div style={S.grid}>
-        {/* ---- Match setup ---- */}
-        <section className="panel" style={S.card}>
-          <div style={S.cardHeader}>
-            <span style={S.cardAccent} />
-            <h2 style={S.h2}>Match Setup</h2>
-          </div>
-
-          <div style={S.fieldGroup}>
-            <label style={S.label}>Mode</label>
-            <div style={S.row}>
+        {/* ---- MATCH SETUP ---- */}
+        <PixelPanel
+          header="MATCH SETUP"
+          tone="panel"
+          style={S.card}
+          bodyStyle={S.cardBody}
+        >
+          <FieldGroup label="MODE">
+            <div style={S.tileRow}>
               {(Object.keys(GAME_MODES) as GameMode[]).map((m) => (
-                <button
+                <ToggleTile
                   key={m}
+                  label={GAME_MODES[m].name}
+                  active={cfg.mode === m}
                   onClick={() => setCfg({ mode: m })}
-                  style={{ ...S.chip, ...(cfg.mode === m ? S.chipOn : {}) }}
                   aria-pressed={cfg.mode === m}
-                >
-                  {cfg.mode === m && <span style={S.chipDot} aria-hidden="true" />}
-                  {GAME_MODES[m].name}
-                </button>
+                />
               ))}
             </div>
             <p style={S.hint}>{GAME_MODES[cfg.mode].blurb}</p>
-          </div>
+          </FieldGroup>
 
-          <div style={S.fieldGroup}>
-            <label style={S.label}>Map</label>
-            <div style={S.row}>
+          <FieldGroup label="MAP">
+            <div style={S.tileRow}>
               {MAP_LIST.map((m) => (
-                <button
+                <ToggleTile
                   key={m.id}
+                  label={m.name}
+                  active={cfg.mapId === m.id}
                   onClick={() => setCfg({ mapId: m.id })}
-                  style={{ ...S.chip, ...(cfg.mapId === m.id ? S.chipOn : {}) }}
                   aria-pressed={cfg.mapId === m.id}
-                >
-                  {cfg.mapId === m.id && <span style={S.chipDot} aria-hidden="true" />}
-                  {m.name}
-                </button>
+                />
               ))}
             </div>
-          </div>
+          </FieldGroup>
 
-          <div style={S.fieldGroup}>
-            <div style={S.sliderLabelRow}>
-              <label style={S.label}>Bots</label>
-              <span style={S.sliderValue}>{cfg.botCount}</span>
-            </div>
-            <div style={S.sliderTrack}>
-              <input
-                type="range"
-                min={1}
-                max={9}
-                value={cfg.botCount}
-                onChange={(e) => setCfg({ botCount: +e.target.value })}
-                style={S.range}
-                aria-label={`Bots: ${cfg.botCount}`}
-              />
-              <div
-                style={{
-                  ...S.sliderFill,
-                  width: `${((cfg.botCount - 1) / 8) * 100}%`,
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={S.fieldGroup}>
-            <div style={S.sliderLabelRow}>
-              <label style={S.label}>Bot Skill</label>
-              <span style={S.sliderValue}>
-                {["Sprout", "Sprout", "Ripe", "Ripe", "Vine Veteran", "Vine Veteran", "Heirloom Pro"][Math.round(cfg.botSkill * 6)]}
-              </span>
-            </div>
-            <div style={S.sliderTrack}>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.1}
-                value={cfg.botSkill}
-                onChange={(e) => setCfg({ botSkill: +e.target.value })}
-                style={S.range}
-                aria-label={`Bot skill: ${["Sprout", "Sprout", "Ripe", "Ripe", "Vine Veteran", "Vine Veteran", "Heirloom Pro"][Math.round(cfg.botSkill * 6)]}`}
-              />
-              <div
-                style={{
-                  ...S.sliderFill,
-                  width: `${cfg.botSkill * 100}%`,
-                }}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* ---- Your tomato + play ---- */}
-        <section className="panel" style={S.card}>
-          <div style={S.cardHeader}>
-            <span style={{ ...S.cardAccent, background: "var(--tomato)" }} />
-            <h2 style={S.h2}>Your Tomato</h2>
-          </div>
-
-          <div style={S.fieldGroup}>
-            <label style={S.label} htmlFor="callsign-input">Callsign</label>
-            <input
-              id="callsign-input"
-              value={settings.name}
-              onChange={(e) => setSettings({ name: e.target.value.slice(0, 16) })}
-              style={S.input}
-              placeholder="Enter callsign"
-              maxLength={16}
+          <FieldGroup label={`BOTS — ${cfg.botCount}`}>
+            <SteppedSlider
+              min={1}
+              max={9}
+              steps={9}
+              value={cfg.botCount}
+              onChange={(v) => setCfg({ botCount: v })}
+              aria-label={`Bots: ${cfg.botCount}`}
             />
+          </FieldGroup>
+
+          <FieldGroup label={`BOT SKILL — ${botSkillLabel}`}>
+            <SteppedSlider
+              min={0}
+              max={1}
+              steps={7}
+              value={cfg.botSkill}
+              onChange={(v) => setCfg({ botSkill: v })}
+              aria-label={`Bot skill: ${botSkillLabel}`}
+              fractional
+            />
+          </FieldGroup>
+        </PixelPanel>
+
+        {/* ---- YOUR TOMATO ---- */}
+        <PixelPanel
+          header="YOUR TOMATO"
+          tone="panel"
+          headerStyle={{ backgroundColor: "var(--arc-red-dark)" }}
+          style={S.card}
+          bodyStyle={S.cardBody}
+        >
+          <FieldGroup label="CALLSIGN">
+            <div style={S.callsignWrap}>
+              <input
+                id="callsign-input"
+                value={settings.name}
+                onChange={(e) => setSettings({ name: e.target.value.slice(0, 16) })}
+                style={S.callsignInput}
+                placeholder="ENTER NAME_"
+                maxLength={16}
+                aria-label="Player callsign"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </div>
+          </FieldGroup>
+
+          <ArcadeButton
+            variant="primary"
+            size="lg"
+            style={S.playBtn}
+            onClick={onStartSolo}
+          >
+            <span style={S.blinkArrow} aria-hidden="true">▶</span>
+            PRACTICE VS BOTS
+          </ArcadeButton>
+
+          {/* Online divider */}
+          <div style={S.divider} aria-hidden="true">
+            <div style={S.dividerLine} />
+            <span style={S.dividerLabel}>— ONLINE —</span>
+            <div style={S.dividerLine} />
           </div>
 
-          <button className="btn" style={S.playBtn} onClick={onStartSolo}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M4 2.5v11l9-5.5L4 2.5Z"/>
-            </svg>
-            Practice vs Bots
-          </button>
-
-          <div style={S.divider}>
-            <div style={S.dividerLine} />
-            <span style={S.dividerLabel}>Online</span>
-            <div style={S.dividerLine} />
-          </div>
-
-          <button
-            className="btn btn--ghost"
-            style={S.onlineBtn}
+          <ArcadeButton
+            variant="ghost"
+            style={S.wideBtn}
             onClick={onHost}
             disabled={!onHost}
+            aria-label="Host a room"
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M7 4v6M4 7h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
-            Host a Room
-          </button>
+            + HOST A ROOM
+          </ArcadeButton>
 
+          {/* Room code cells */}
           <div style={S.joinRow}>
-            <input
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
-              placeholder="ROOM CODE"
-              style={{ ...S.input, flex: 1, letterSpacing: "0.2em", textAlign: "center", fontFamily: "var(--font-display)" }}
-              disabled={!onJoin}
-              aria-label="Room code to join"
-              maxLength={6}
-            />
-            <button
-              className="btn btn--ghost"
+            <div style={S.codeInputWrap}>
+              <input
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
+                placeholder="– – – – – –"
+                style={S.codeInput}
+                disabled={!onJoin}
+                aria-label="Room code to join"
+                maxLength={6}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </div>
+            <ArcadeButton
+              variant="ghost"
+              size="sm"
               onClick={() => onJoin?.(joinCode)}
               disabled={!onJoin || joinCode.length < 4}
-              style={{ flexShrink: 0 }}
               aria-label="Join room"
             >
-              Join
-            </button>
+              JOIN
+            </ArcadeButton>
           </div>
 
           {!onHost && (
             <p style={S.hint}>
-              Online play loads with the room system — practice vs bots is live now.
+              ▸ ONLINE PLAY READY WHEN ROOM SYSTEM LOADS
             </p>
           )}
-        </section>
+        </PixelPanel>
       </div>
 
+      {/* Keyboard hints footer */}
       <footer style={S.footer}>
-        <div style={S.footerKeys}>
+        <div style={S.kbdRow}>
           {[
-            ["WASD", "move"],
-            ["Mouse", "aim"],
-            ["LMB", "fire"],
-            ["B", "buy"],
-            ["Tab", "scores"],
-            ["E", "plant/defuse"],
+            ["WASD", "MOVE"],
+            ["MOUSE", "AIM"],
+            ["LMB", "FIRE"],
+            ["B", "BUY"],
+            ["TAB", "SCORES"],
+            ["E", "PLANT"],
           ].map(([key, action]) => (
-            <span key={key} style={S.footerKey}>
-              <kbd style={S.kbd}>{key}</kbd>
-              <span style={S.footerKeyLabel}>{action}</span>
+            <span key={key} style={S.kbdHint}>
+              <kbd className="arc-kbd">{key}</kbd>
+              <span style={S.kbdLabel}>{action}</span>
             </span>
           ))}
         </div>
@@ -248,260 +239,363 @@ export function MainMenu({
   );
 }
 
+/* ---------- Sub-components ---------- */
+
+function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={S.fieldGroup}>
+      <div style={S.fieldLabel}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function ToggleTile({
+  label,
+  active,
+  onClick,
+  ...rest
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  [k: string]: unknown;
+}) {
+  return (
+    <button
+      style={{
+        ...S.tile,
+        ...(active ? S.tileOn : {}),
+      }}
+      onClick={onClick}
+      {...rest}
+    >
+      {active && <span style={S.tileMark} aria-hidden="true">▮</span>}
+      {label}
+    </button>
+  );
+}
+
+function SteppedSlider({
+  min,
+  max,
+  steps,
+  value,
+  onChange,
+  fractional = false,
+  ...rest
+}: {
+  min: number;
+  max: number;
+  steps: number;
+  value: number;
+  onChange: (v: number) => void;
+  fractional?: boolean;
+  [k: string]: unknown;
+}) {
+  const pct = fractional
+    ? ((value - min) / (max - min)) * 100
+    : ((value - min) / (max - min)) * 100;
+
+  return (
+    <div style={S.sliderOuter}>
+      {/* Notch track backdrop */}
+      <div style={S.sliderTrack} aria-hidden="true">
+        {Array.from({ length: steps }).map((_, i) => {
+          const notchPct = (i / (steps - 1)) * 100;
+          const filled = pct >= notchPct - 0.1;
+          return (
+            <div
+              key={i}
+              style={{
+                ...S.sliderNotch,
+                background: filled ? "var(--arc-green)" : "var(--arc-panel-hi)",
+              }}
+            />
+          );
+        })}
+      </div>
+      {/* Actual native range — transparent, full hit area on top */}
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={fractional ? (max - min) / (steps - 1) : 1}
+        value={value}
+        onChange={(e) => onChange(+e.target.value)}
+        style={S.rangeInput}
+        {...rest}
+      />
+    </div>
+  );
+}
+
+/* ---------- Styles ---------- */
+
 const S: Record<string, React.CSSProperties> = {
   root: {
     minHeight: "100vh",
     display: "flex",
     flexDirection: "column",
-    padding: "1.5rem clamp(1rem, 4vw, 3rem)",
+    padding: "1.25rem clamp(1rem, 4vw, 2.5rem)",
     position: "relative",
     overflow: "hidden",
+    background: "var(--arc-bg0)",
   },
-  bgGlow: {
+  backdrop: {
     position: "absolute",
     inset: 0,
-    background:
-      "radial-gradient(ellipse 70% 55% at 20% 0%, rgba(255,59,48,0.09), transparent 55%), radial-gradient(ellipse 60% 55% at 85% 100%, rgba(124,252,88,0.11), transparent 55%)",
     pointerEvents: "none",
+    zIndex: 0,
   },
-  bgGrid: {
+  pixelGrid: {
     position: "absolute",
     inset: 0,
     backgroundImage:
-      "linear-gradient(rgba(124,252,88,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(124,252,88,0.025) 1px, transparent 1px)",
-    backgroundSize: "56px 56px",
-    maskImage: "radial-gradient(ellipse 90% 80% at 50% 50%, black 20%, transparent 75%)",
-    WebkitMaskImage: "radial-gradient(ellipse 90% 80% at 50% 50%, black 20%, transparent 75%)",
-    pointerEvents: "none",
+      "linear-gradient(rgba(61,255,94,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(61,255,94,0.06) 1px, transparent 1px)",
+    backgroundSize: "24px 24px",
+  },
+  scanlines: {
+    position: "absolute",
+    inset: 0,
+    backgroundImage:
+      "repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,0.22) 3px 4px)",
   },
   header: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-end",
     zIndex: 1,
-    marginBottom: "0.5rem",
+    marginBottom: "1.25rem",
+    flexWrap: "wrap",
+    gap: "0.75rem",
   },
-  brand: {
-    fontFamily: "var(--font-display)",
-    fontSize: "clamp(1.3rem, 3vw, 1.8rem)",
-    fontWeight: 700,
-    letterSpacing: "0.06em",
+  wordmarkLink: {
+    display: "flex",
+    flexDirection: "column",
     lineHeight: 1,
+    gap: 2,
+  },
+  wordmarkTomato: {
+    fontFamily: "var(--font-display)",
+    fontSize: "clamp(20px, 3.5vw, 32px)",
+    color: "var(--arc-red)",
+    textShadow: "4px 4px 0 var(--arc-red-dark), 8px 8px 0 #000",
+    letterSpacing: "0.04em",
+  },
+  wordmarkStrike: {
+    fontFamily: "var(--font-display)",
+    fontSize: "clamp(20px, 3.5vw, 32px)",
+    color: "var(--arc-green)",
+    textShadow: "4px 4px 0 var(--arc-green-dark), 8px 8px 0 #000",
+    letterSpacing: "0.04em",
   },
   headerNav: {
     display: "flex",
     alignItems: "center",
-    gap: "0.4rem",
+    gap: "0.5rem",
   },
-  navBtn: {
+  navLinkBtn: {
     display: "inline-flex",
     alignItems: "center",
-    gap: "0.4em",
-    color: "var(--ink-dim)",
-    fontSize: "0.8rem",
+    padding: "0.55em 0.9em",
     fontFamily: "var(--font-display)",
-    letterSpacing: "0.04em",
-    padding: "0.4em 0.7em",
-    borderRadius: "var(--r-sm)",
-    transition: "color 0.15s, background 0.15s",
+    fontSize: "8px",
+    letterSpacing: "0.06em",
+    textTransform: "uppercase" as const,
+    color: "var(--arc-white)",
+    background: "var(--arc-panel)",
+    border: "var(--arc-border-w) solid var(--arc-black)",
+    boxShadow: "3px 3px 0 var(--arc-black)",
   },
+  navBtnInner: { display: "block" },
   grid: {
     flex: 1,
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-    gap: "1.5rem",
-    alignContent: "center",
-    maxWidth: 900,
+    gap: "1.25rem",
+    alignContent: "start",
+    maxWidth: 920,
     width: "100%",
-    margin: "1.5rem auto",
+    margin: "0 auto",
     zIndex: 1,
   },
   card: {
-    padding: "1.75rem",
     display: "flex",
     flexDirection: "column",
-    gap: "0.8rem",
+    width: "100%",
   },
-  cardHeader: {
+  cardBody: {
+    padding: "1.25rem",
     display: "flex",
-    alignItems: "center",
-    gap: "0.75rem",
-    marginBottom: "0.4rem",
-  },
-  cardAccent: {
-    display: "block",
-    width: 3,
-    height: "1.4rem",
-    borderRadius: 2,
-    background: "var(--leaf)",
-    flexShrink: 0,
-  },
-  h2: {
-    fontSize: "1.2rem",
-    color: "var(--ink)",
-    fontFamily: "var(--font-display)",
-    letterSpacing: "0.04em",
+    flexDirection: "column",
+    gap: "1rem",
   },
   fieldGroup: {
     display: "flex",
     flexDirection: "column",
     gap: "0.45rem",
   },
-  label: {
-    fontSize: "0.68rem",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-    color: "var(--ink-dim)",
+  fieldLabel: {
     fontFamily: "var(--font-display)",
+    fontSize: "8px",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase" as const,
+    color: "var(--arc-green)",
+    paddingBottom: "4px",
+    borderBottom: "1px solid rgba(61,255,94,0.15)",
   },
   hint: {
-    fontSize: "0.77rem",
-    color: "var(--ink-faint)",
-    lineHeight: 1.45,
+    fontFamily: "var(--font-body)",
+    fontSize: "16px",
+    color: "var(--arc-ink-faint)",
+    lineHeight: 1.35,
   },
-  row: {
+  tileRow: {
     display: "flex",
-    gap: "0.5rem",
-    flexWrap: "wrap",
+    gap: "6px",
+    flexWrap: "wrap" as const,
   },
-  chip: {
+  tile: {
     display: "inline-flex",
     alignItems: "center",
-    gap: "0.4em",
-    padding: "0.45em 0.9em",
-    borderRadius: "var(--r-sm)",
-    background: "var(--bg-2)",
-    border: "1px solid var(--panel-edge)",
-    color: "var(--ink-dim)",
-    fontSize: "0.83rem",
+    gap: "0.35em",
+    padding: "0.5em 0.8em",
     fontFamily: "var(--font-display)",
-    letterSpacing: "0.03em",
-    transition: "all 0.14s var(--ease-out)",
+    fontSize: "8px",
+    letterSpacing: "0.06em",
+    textTransform: "uppercase" as const,
+    background: "var(--arc-panel-hi)",
+    color: "var(--arc-ink-dim)",
+    border: "var(--arc-border-w) solid var(--arc-black)",
+    boxShadow: "3px 3px 0 var(--arc-black)",
+    cursor: "pointer",
   },
-  chipOn: {
-    background: "rgba(124,252,88,0.14)",
-    color: "var(--leaf)",
-    borderColor: "rgba(124,252,88,0.45)",
-    fontWeight: 600,
+  tileOn: {
+    background: "var(--arc-green)",
+    color: "var(--arc-black)",
+    boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.25), inset -1px -1px 0 rgba(0,0,0,0.4)",
   },
-  chipDot: {
-    display: "block",
-    width: 6,
-    height: 6,
-    borderRadius: "50%",
-    background: "var(--leaf)",
-    flexShrink: 0,
+  tileMark: {
+    fontSize: "6px",
+    lineHeight: 1,
   },
-  sliderLabelRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-  },
-  sliderValue: {
-    fontSize: "0.78rem",
-    color: "var(--leaf)",
-    fontFamily: "var(--font-display)",
-    fontWeight: 600,
-  },
-  sliderTrack: {
+  sliderOuter: {
     position: "relative",
     height: 20,
+  },
+  sliderTrack: {
+    position: "absolute",
+    inset: 0,
     display: "flex",
     alignItems: "center",
+    gap: "3px",
+    padding: "0 2px",
   },
-  sliderFill: {
+  sliderNotch: {
+    flex: 1,
+    height: 10,
+    border: "1px solid var(--arc-black)",
+  },
+  rangeInput: {
     position: "absolute",
-    left: 0,
-    top: "50%",
-    transform: "translateY(-50%)",
-    height: 4,
-    borderRadius: 2,
-    background: "linear-gradient(to right, var(--leaf-deep), var(--leaf))",
-    pointerEvents: "none",
-  },
-  range: {
+    inset: 0,
     width: "100%",
-    accentColor: "var(--leaf)",
-    position: "relative",
+    opacity: 0,
+    cursor: "pointer",
     zIndex: 1,
-    background: "transparent",
   },
-  input: {
-    padding: "0.65em 0.9em",
-    borderRadius: "var(--r-sm)",
-    background: "var(--bg-1)",
-    border: "1px solid var(--panel-edge)",
-    color: "var(--ink)",
-    fontFamily: "var(--font-body)",
-    fontSize: "1rem",
+  callsignWrap: {
+    background: "var(--arc-black)",
+    border: "var(--arc-border-w) solid var(--arc-green)",
+    padding: "2px",
+  },
+  callsignInput: {
+    width: "100%",
+    background: "transparent",
+    border: "none",
     outline: "none",
-    transition: "border-color 0.15s",
+    fontFamily: "var(--font-body)",
+    fontSize: "24px",
+    color: "var(--arc-green)",
+    padding: "0.3em 0.5em",
+    letterSpacing: "0.06em",
   },
   playBtn: {
-    marginTop: "0.8rem",
-    fontSize: "1.05rem",
-    padding: "0.95em 1.4em",
     width: "100%",
-    gap: "0.55em",
-    boxShadow: "var(--glow-leaf)",
+    marginTop: "0.25rem",
+    gap: "0.6em",
+    justifyContent: "center",
+  },
+  blinkArrow: {
+    animation: "arc-blink 0.9s steps(1) infinite",
+    display: "inline-block",
   },
   divider: {
     display: "flex",
     alignItems: "center",
-    gap: "0.75rem",
-    margin: "0.6rem 0 0.2rem",
+    gap: "0.5rem",
+    margin: "0.25rem 0",
   },
   dividerLine: {
     flex: 1,
-    height: 1,
-    background: "var(--panel-edge)",
+    height: "2px",
+    background: "var(--arc-panel-hi)",
   },
   dividerLabel: {
-    color: "var(--ink-faint)",
-    fontSize: "0.68rem",
-    letterSpacing: "0.2em",
-    textTransform: "uppercase",
     fontFamily: "var(--font-display)",
-    flexShrink: 0,
+    fontSize: "8px",
+    color: "var(--arc-ink-faint)",
+    letterSpacing: "0.12em",
+    whiteSpace: "nowrap" as const,
   },
-  onlineBtn: {
+  wideBtn: {
     width: "100%",
-    gap: "0.5em",
+    justifyContent: "center",
   },
   joinRow: {
     display: "flex",
     gap: "0.5rem",
+    alignItems: "stretch",
+  },
+  codeInputWrap: {
+    flex: 1,
+    background: "var(--arc-black)",
+    border: "var(--arc-border-w) solid var(--arc-black)",
+  },
+  codeInput: {
+    width: "100%",
+    height: "100%",
+    background: "transparent",
+    border: "none",
+    outline: "none",
+    fontFamily: "var(--font-display)",
+    fontSize: "12px",
+    color: "var(--arc-green)",
+    textAlign: "center" as const,
+    letterSpacing: "0.45em",
+    padding: "0.5em",
+    textTransform: "uppercase" as const,
   },
   footer: {
-    textAlign: "center",
-    marginTop: "1.25rem",
+    textAlign: "center" as const,
+    marginTop: "1rem",
     zIndex: 1,
   },
-  footerKeys: {
+  kbdRow: {
     display: "flex",
     justifyContent: "center",
-    flexWrap: "wrap",
-    gap: "0.6rem 1.2rem",
+    flexWrap: "wrap" as const,
+    gap: "0.5rem 1.25rem",
   },
-  footerKey: {
+  kbdHint: {
     display: "inline-flex",
     alignItems: "center",
-    gap: "0.45em",
+    gap: "0.4em",
   },
-  kbd: {
-    fontFamily: "var(--font-display)",
-    fontSize: "0.65rem",
-    letterSpacing: "0.06em",
-    background: "var(--bg-3)",
-    border: "1px solid rgba(124,252,88,0.2)",
-    borderRadius: 5,
-    padding: "0.2em 0.5em",
-    color: "var(--leaf)",
-    boxShadow: "0 2px 0 rgba(0,0,0,0.4)",
-  },
-  footerKeyLabel: {
-    fontSize: "0.72rem",
-    color: "var(--ink-faint)",
+  kbdLabel: {
     fontFamily: "var(--font-body)",
+    fontSize: "16px",
+    color: "var(--arc-ink-faint)",
   },
 };

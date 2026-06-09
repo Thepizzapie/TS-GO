@@ -34,6 +34,8 @@ const REF_DIST = 4;
 // Small math helpers (kept local so the module stays framework-free)
 // ---------------------------------------------------------------------------
 function clamp(v: number, lo: number, hi: number): number {
+  // NaN/Infinity must never reach an AudioParam (values can arrive off the wire)
+  if (!Number.isFinite(v)) return lo;
   return v < lo ? lo : v > hi ? hi : v;
 }
 
@@ -408,6 +410,7 @@ class TomatoAudio implements AudioEngine {
           thumpFreq: 150,
           thumpGain: 0.5,
           crackGain: 0.9,
+          subBass: true,
         });
       case "shoot_magnum":
         return this.gun(ctx, dest, t, rate, {
@@ -427,6 +430,7 @@ class TomatoAudio implements AudioEngine {
           thumpFreq: 200,
           thumpGain: 0.3,
           crackGain: 0.8,
+          subBass: true,
         });
       case "shoot_shotgun":
         return this.shotgun(ctx, dest, t, rate);
@@ -499,32 +503,79 @@ class TomatoAudio implements AudioEngine {
         });
         return 0.12;
       case "hitmarker":
-        // Clean rewarding blip.
-        this.tone(ctx, dest, {
+        // Layered crunch: sharp high click + mid thock + square blip texture.
+        // Layer 1 — high bandpass noise click (~4 kHz, <30 ms).
+        this.noise(ctx, dest, {
           t0: t,
-          dur: 0.05,
-          type: "square",
-          freq: 1200 * rate,
-          gain: 0.32,
+          dur: 0.028,
+          type: "bandpass",
+          freq: 4000 * rate,
+          q: 2.5,
+          gain: 0.55,
+          attack: 0.001,
         });
-        return 0.06;
-      case "headshot":
-        // Zingy two-note ding, higher and brighter than the hitmarker.
+        // Layer 2 — mid "thock": triangle pitch-drop 750→280 Hz, 60 ms.
         this.tone(ctx, dest, {
           t0: t,
           dur: 0.06,
-          type: "square",
-          freq: 1500 * rate,
-          gain: 0.3,
+          type: "triangle",
+          freq: 750 * rate,
+          freqEnd: 280 * rate,
+          gain: 0.42,
+          attack: 0.002,
         });
+        // Layer 3 — square blip detuned slightly for crunch texture, 35 ms.
         this.tone(ctx, dest, {
-          t0: t + 0.04,
-          dur: 0.1,
-          type: "sine",
-          freq: 2300 * rate,
-          gain: 0.28,
+          t0: t,
+          dur: 0.035,
+          type: "square",
+          freq: 940 * rate,
+          gain: 0.18,
+          attack: 0.001,
         });
-        return 0.16;
+        return 0.08;
+      case "headshot":
+        // Same crunch family as hitmarker + an unmistakable bright dink layer.
+        // Layer 1 — high bandpass click (slightly brighter, ~4.5 kHz).
+        this.noise(ctx, dest, {
+          t0: t,
+          dur: 0.028,
+          type: "bandpass",
+          freq: 4500 * rate,
+          q: 2.8,
+          gain: 0.65,
+          attack: 0.001,
+        });
+        // Layer 2 — mid thock (same pitch contour as hitmarker).
+        this.tone(ctx, dest, {
+          t0: t,
+          dur: 0.06,
+          type: "triangle",
+          freq: 750 * rate,
+          freqEnd: 280 * rate,
+          gain: 0.44,
+          attack: 0.002,
+        });
+        // Layer 3 — square crunch blip.
+        this.tone(ctx, dest, {
+          t0: t,
+          dur: 0.035,
+          type: "square",
+          freq: 940 * rate,
+          gain: 0.20,
+          attack: 0.001,
+        });
+        // Layer 4 — the CS-style "dink": bright sine ~2.1 kHz with a longer tail.
+        this.tone(ctx, dest, {
+          t0: t + 0.005,
+          dur: 0.11,
+          type: "sine",
+          freq: 2100 * rate,
+          freqEnd: 1800 * rate,
+          gain: 0.38,
+          attack: 0.003,
+        });
+        return 0.13;
       case "hurt":
         // Soft squish/grunt: low filtered noise with a downward pitch.
         this.noise(ctx, dest, {
@@ -760,6 +811,27 @@ class TomatoAudio implements AudioEngine {
           gain: 0.16,
         });
         return 0.05;
+      case "kill_confirm":
+        // Low satisfying thump+crunch: sub sine drop + mid noise body.
+        this.tone(ctx, dest, {
+          t0: t,
+          dur: 0.12,
+          type: "sine",
+          freq: 160,
+          freqEnd: 55,
+          gain: 0.55,
+          attack: 0.003,
+        });
+        this.noise(ctx, dest, {
+          t0: t,
+          dur: 0.09,
+          type: "lowpass",
+          freq: 1400,
+          freqEnd: 380,
+          gain: 0.45,
+          attack: 0.002,
+        });
+        return 0.14;
 
       default: {
         // Exhaustiveness guard — if a new SoundId is added the compiler flags it.
@@ -787,6 +859,8 @@ class TomatoAudio implements AudioEngine {
       thumpGain: number;
       crackGain: number;
       tail?: number;
+      /** S6: add a short sub-bass sine layer (for pistol/SMG body). */
+      subBass?: boolean;
     },
   ): number {
     const f = rate;
@@ -812,6 +886,17 @@ class TomatoAudio implements AudioEngine {
       freqEnd: p.thumpFreq * 0.6 * f,
       gain: p.thumpGain,
     });
+    // S6: sub-bass body for pistol / SMG — short 60→30 Hz sine layer.
+    if (p.subBass) {
+      this.tone(ctx, dest, {
+        t0: t,
+        dur: p.dur * 0.7,
+        type: "sine",
+        freq: 60,
+        freqEnd: 30,
+        gain: 0.35,
+      });
+    }
     // Optional decaying tail for bigger guns.
     if (p.tail) {
       this.noise(ctx, dest, {
@@ -1064,6 +1149,13 @@ class TomatoAudio implements AudioEngine {
     }
     this.currentTrack = null;
   }
+
+  setTension(t: number): void {
+    // S5: propagate tension to the battle music engine. No-op if music isn't running.
+    if (this.music && this.currentTrack === "battle") {
+      this.music.setTension(clamp(t, 0, 1));
+    }
+  }
 }
 
 // ===========================================================================
@@ -1140,6 +1232,12 @@ class MusicEngine {
   private lfo: OscillatorNode | null = null;
   private filter: BiquadFilterNode | null = null;
 
+  // S5: tension state — 0 = calm, 1 = maximum tension (bomb planted).
+  private tension = 0;
+  // S5: persistent high-layer oscillator for tension (null = silent, created lazily).
+  private highLayer: OscillatorNode | null = null;
+  private highLayerGain: GainNode | null = null;
+
   private static readonly LOOKAHEAD_MS = 120;
   private static readonly SCHEDULE_AHEAD = 0.3; // seconds
 
@@ -1199,6 +1297,49 @@ class MusicEngine {
     this.scheduleLoop();
   }
 
+  /**
+   * S5: Ramp music tension smoothly. Called by FxAudio when bomb is planted.
+   * - Scales pluck gain up (louder, more urgent).
+   * - Shortens the step duration (faster tempo) — takes effect at next advance().
+   * - Fades in a high-register square-wave layer on top of the melody filter.
+   */
+  setTension(t: number): void {
+    this.tension = t;
+    if (this.track !== "battle" || !this.running) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // High layer: create lazily, fade in/out based on tension.
+    if (t > 0.05) {
+      if (!this.highLayer && this.filter) {
+        // Spawn a high-register square wave (E5 / 659 Hz) through the shared filter.
+        const osc = ctx.createOscillator();
+        osc.type = "square";
+        osc.frequency.value = 659;
+        const g = ctx.createGain();
+        g.gain.value = EPS;
+        osc.connect(g);
+        g.connect(this.filter);
+        osc.start(now);
+        this.highLayer = osc;
+        this.highLayerGain = g;
+      }
+      // Fade the high layer to tension * 0.08 (subtle, never overpowering).
+      if (this.highLayerGain) {
+        try {
+          this.highLayerGain.gain.cancelScheduledValues(now);
+          this.highLayerGain.gain.setTargetAtTime(Math.max(EPS, t * 0.08), now, 0.5);
+        } catch { /* ignore */ }
+      }
+    } else if (this.highLayerGain) {
+      // Tension dropped to zero — fade the high layer back out.
+      try {
+        this.highLayerGain.gain.cancelScheduledValues(now);
+        this.highLayerGain.gain.setTargetAtTime(EPS, now, 0.5);
+      } catch { /* ignore */ }
+    }
+  }
+
   stop(): void {
     if (!this.running) {
       // Even if never started, make sure nodes are gone.
@@ -1232,6 +1373,11 @@ class MusicEngine {
     } catch {
       /* ignore */
     }
+    try {
+      this.highLayer?.stop(stopAt);
+    } catch {
+      /* ignore */
+    }
     // Final disconnect once the fade has completed.
     if (typeof window !== "undefined") {
       window.setTimeout(() => this.teardownNow(), (fade + 0.15) * 1000);
@@ -1241,14 +1387,14 @@ class MusicEngine {
   }
 
   private teardownNow(): void {
-    for (const n of [this.drone, this.lfo]) {
+    for (const n of [this.drone, this.lfo, this.highLayer]) {
       try {
         n?.disconnect();
       } catch {
         /* ignore */
       }
     }
-    for (const n of [this.droneGain, this.filter, this.out]) {
+    for (const n of [this.droneGain, this.filter, this.highLayerGain, this.out]) {
       try {
         n?.disconnect();
       } catch {
@@ -1259,6 +1405,8 @@ class MusicEngine {
     this.lfo = null;
     this.droneGain = null;
     this.filter = null;
+    this.highLayer = null;
+    this.highLayerGain = null;
   }
 
   /** Timer-driven lookahead scheduler. */
@@ -1275,7 +1423,11 @@ class MusicEngine {
   }
 
   private advance(): void {
-    const stepDur = this.track === "battle" ? 0.16 : 0.32; // battle = faster
+    // S5: tension shortens the battle step duration (0.16s calm → 0.10s full tension).
+    const baseDur = this.track === "battle" ? 0.16 : 0.32;
+    const stepDur = this.track === "battle"
+      ? baseDur - this.tension * 0.06
+      : baseDur;
     this.nextNoteTime += stepDur;
     this.step = (this.step + 1) % 16;
   }
@@ -1314,12 +1466,14 @@ class MusicEngine {
       0, 5, 3, 2, 4, 3, 2, 1,
     ];
     const idx = lead[this.step];
+    // S5: tension scales pluck gain (0.12 at rest → 0.22 at full tension).
+    const pluckGain = 0.12 + this.tension * 0.10;
     if (idx != null) {
-      this.pluck(time, scale[idx], 0.13, "sawtooth", 0.12);
+      this.pluck(time, scale[idx], 0.13, "sawtooth", pluckGain);
     }
     // Low driving pulse on every other step (the "heartbeat").
     if (this.step % 2 === 0) {
-      this.pluck(time, 110, 0.1, "square", 0.1);
+      this.pluck(time, 110, 0.1, "square", 0.1 + this.tension * 0.06);
     }
     // A noise tick for percussion on the off-beats.
     if (this.step % 4 === 2 && this.noiseBuffer && this.filter) {

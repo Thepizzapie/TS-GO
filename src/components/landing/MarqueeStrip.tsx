@@ -28,6 +28,7 @@ export function MarqueeStrip() {
       <div className="lp-marquee-track">
         {all.map((item, i) => (
           <span key={i} className="lp-marquee-item">
+            {/* Square dot separator — matches lp-marquee-dot in CSS */}
             <span className="lp-marquee-dot" />
             {item}
           </span>

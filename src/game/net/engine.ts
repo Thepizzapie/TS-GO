@@ -51,6 +51,9 @@ const idle = (yaw = 0, pitch = 0): PlayerInput => ({
   t: 0,
 });
 
+// G7: plant/defuse progress beep thresholds (module-level — detectStateFx is hot)
+const PROGRESS_THRESHOLDS = [0.25, 0.5, 0.75, 0.95];
+
 export class GameEngine {
   role: EngineRole;
   localId: string;
@@ -70,12 +73,18 @@ export class GameEngine {
 
   // diff trackers for snapshot-derived fx
   private lastKfId = 0;
-  private projInfo = new Map<number, { pos: Vec3; weapon: WeaponId }>();
+  private projInfo = new Map<number, { pos: Vec3; weapon: WeaponId; prevVelY: number }>();
   private prevPlanted = false;
   private prevDefused = false;
   private prevPhase = "";
   private nextBeepAt = 0;
   private inputSeq = 0;
+  // G7 / S1: per-player action progress tracking
+  private prevActionProgress = new Map<string, number>();
+  // G7: which progress thresholds have fired this action cycle (reset when progress resets to 0)
+  private actionThresholdsFired = new Map<string, number>();
+  // G2: jump detection via onGround state diff (per player)
+  private prevOnGround = new Map<string, boolean>();
 
   constructor(opts: {
     role: EngineRole;
@@ -305,11 +314,20 @@ export class GameEngine {
       const remain = Math.max(0, s.bomb.detonatesAt - s.now);
       this.nextBeepAt = now + Math.max(150, Math.min(900, remain * 0.06));
     }
-    // grenade detonations: a projectile that vanished this frame just went off
+    // grenade detonations: a projectile that vanished this frame just went off.
+    // S2: also detect vel.y sign flips (bounce) on live projectiles.
     const curIds = new Set<number>();
     for (const g of s.projectiles) {
       curIds.add(g.id);
-      this.projInfo.set(g.id, { pos: g.pos, weapon: g.weapon });
+      const prev = this.projInfo.get(g.id);
+      // S2: bounce = vel.y was negative last frame, now non-negative (hit floor / step).
+      if (prev && prev.prevVelY < -0.5 && g.vel[1] >= 0) {
+        const pitch = 0.75 + Math.random() * 0.6; // random pitch 0.75..1.35
+        const fx: FxEvent = { k: "nade_bounce", pos: g.pos, pitch };
+        this.outFx.push(fx);
+        this.emitFx(fx);
+      }
+      this.projInfo.set(g.id, { pos: g.pos, weapon: g.weapon, prevVelY: g.vel[1] });
     }
     for (const [id, info] of this.projInfo) {
       if (!curIds.has(id)) {
@@ -318,6 +336,71 @@ export class GameEngine {
         // compost smoke renders as a volume — no boom fx needed
         this.projInfo.delete(id);
       }
+    }
+
+    // G2: detect jumps for bots and remote players (local player handled by controller).
+    for (const [pid, p] of Object.entries(s.players)) {
+      if (!p.alive) continue;
+      const wasOnGround = this.prevOnGround.get(pid) ?? true;
+      const isOnGround = p.onGround;
+      // Jumped = was on ground, now airborne, moving upward.
+      if (wasOnGround && !isOnGround && p.vel[1] > 0 && pid !== this.localId) {
+        const fx: FxEvent = { k: "jump", pid, pos: p.pos };
+        this.outFx.push(fx);
+        this.emitFx(fx);
+      }
+      this.prevOnGround.set(pid, isOnGround);
+    }
+
+    // S1 / G7: plant and defuse action progress tracking.
+    for (const [pid, p] of Object.entries(s.players)) {
+      if (!p.alive) continue;
+      const prev = this.prevActionProgress.get(pid) ?? 0;
+      const cur = p.actionProgress;
+
+      if (cur > 0 && prev === 0) {
+        // S1: action just started (0 → >0 transition).
+        const action = p.team === "spoilers" && p.hasBomb && s.bomb && !s.bomb.planted ? "plant" : "defuse";
+        const pos: Vec3 = action === "plant" ? p.pos : (s.bomb.pos ?? p.pos);
+        const sfx: FxEvent = { k: "action_start", action, pos };
+        this.outFx.push(sfx);
+        this.emitFx(sfx);
+        // Reset threshold tracking for a fresh cycle.
+        this.actionThresholdsFired.set(pid, 0);
+      }
+
+      if (cur === 0 && prev > 0) {
+        // Action was interrupted — reset threshold state.
+        this.actionThresholdsFired.set(pid, 0);
+      }
+
+      if (cur > 0) {
+        // G7: fire accelerating progress beeps at threshold crossings.
+        const fired = this.actionThresholdsFired.get(pid) ?? 0;
+        for (let ti = fired; ti < PROGRESS_THRESHOLDS.length; ti++) {
+          if (cur >= PROGRESS_THRESHOLDS[ti]) {
+            // pitch rises with each threshold (1.0 → 1.25 → 1.50 → 1.75)
+            const pitch = 1.0 + ti * 0.25;
+            const bpos: Vec3 = s.bomb.planted ? (s.bomb.pos ?? p.pos) : p.pos;
+            const bfx: FxEvent = { k: "progress_beep", pos: bpos, pitch };
+            this.outFx.push(bfx);
+            this.emitFx(bfx);
+            this.actionThresholdsFired.set(pid, ti + 1);
+          } else {
+            break; // thresholds are sorted; once we miss one we're done
+          }
+        }
+      }
+
+      this.prevActionProgress.set(pid, cur);
+    }
+
+    // Round restart: drop per-round diff state so the maps never hold stale
+    // entries for dead/disconnected players across rounds.
+    if (s.phase === "buy" && this.prevPhase !== "buy") {
+      this.prevOnGround.clear();
+      this.prevActionProgress.clear();
+      this.actionThresholdsFired.clear();
     }
 
     this.prevPlanted = s.bomb.planted;

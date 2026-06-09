@@ -39,7 +39,8 @@ function RemoteOne({ engine, id }: { engine: GameEngine; id: string }) {
     if (d > 4) {
       g.position.set(t[0], t[1], t[2]); // snap on teleport/respawn
     } else {
-      const k = Math.min(1, dt * 16);
+      // converge faster when lagging behind (0.5–4m) so fast movers don't smear
+      const k = Math.min(1, dt * (d >= 0.5 ? 24 : 16));
       g.position.x += (t[0] - g.position.x) * k;
       g.position.y += (t[1] - g.position.y) * k;
       g.position.z += (t[2] - g.position.z) * k;
@@ -64,6 +65,7 @@ function RemoteOne({ engine, id }: { engine: GameEngine; id: string }) {
         speed={speed}
         onGround={p.onGround}
         hitFlash={hitFlash}
+        pitch={p.pitch}
       />
     </group>
   );

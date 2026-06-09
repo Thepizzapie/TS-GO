@@ -1,12 +1,25 @@
 "use client";
 /**
- * Scoreboard — held-Tab overlay listing both teams sorted by score, with K/D,
- * money, and alive/connection status.
+ * Scoreboard — arcade leaderboard overlay (held-Tab).
+ *
+ * Redesign (Part 7):
+ *   - Wordmark header
+ *   - Giant 7:3 score tally (32px team digits)
+ *   - Team header bars (DEF/ATK + alive count)
+ *   - Table headers 8px, rows VT323 18px, 2px separators + alternating dither
+ *   - me-row: team-color left border + "YOU"
+ *   - MVP gold plate
+ *   - Dead rows 45% opacity
+ *   - Bot/bomb pixel chips
+ *   - No color-only team cues — DEF/ATK badges + placement always shown
  */
 import type { GameState } from "@/game/core/types";
 import { TEAMS } from "@/game/core/types";
 import { WEAPONS } from "@/game/core/weapons";
 import { TEAM_COLOR } from "@/game/state/store";
+import { PixelPanel } from "@/components/arcade/PixelPanel";
+import { TickerNumber } from "@/components/arcade/TickerNumber";
+import { StarIcon, BombIcon, SkullIcon } from "@/components/arcade/PixelIcons";
 
 export function Scoreboard({ game, myId }: { game: GameState; myId: string }) {
   const teams = (["guard", "spoilers"] as const).map((team) => ({
@@ -21,138 +34,186 @@ export function Scoreboard({ game, myId }: { game: GameState; myId: string }) {
 
   return (
     <div style={SB.overlay} role="dialog" aria-label="Scoreboard">
-      <div className="panel" style={SB.card}>
-        {/* Title bar */}
+      <PixelPanel style={SB.card}>
+        {/* Wordmark header */}
         <div style={SB.titleBar}>
-          <div style={SB.titleLeft}>
-            <span style={SB.titleGame}>
-              <span style={{ color: "var(--tomato)", textShadow: "var(--glow-tomato)" }}>TOMATO</span>
-              <span style={{ color: "var(--leaf)", marginLeft: "0.15em" }}>STRIKE</span>
-            </span>
-            <div style={SB.titleMeta}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, lineHeight: 1 }}>
+              <span style={{ color: "var(--arc-red)" }}>TOMATO</span>
+              <span style={{ color: "var(--arc-green)", marginLeft: "0.15em" }}>STRIKE</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={SB.metaPill}>
-                {game.config.mode === "deathmatch" ? "Squash Match" : "Salsa Bomb"}
+                {game.config.mode === "deathmatch" ? "SQUASH MATCH" : "SALSA BOMB"}
               </span>
-              <span style={SB.metaSep}>·</span>
-              <span style={SB.metaMap}>{game.config.mapId}</span>
-              <span style={SB.metaSep}>·</span>
-              <span style={SB.metaRound}>Round {game.roundNumber}</span>
+              <span style={SB.metaSep}>&middot;</span>
+              <span style={{ ...SB.metaPill, textTransform: "uppercase" as const }}>
+                {game.config.mapId}
+              </span>
+              <span style={SB.metaSep}>&middot;</span>
+              <span style={SB.metaPill}>ROUND {game.roundNumber}</span>
             </div>
           </div>
-          {/* Score tally */}
+
+          {/* Giant score tally */}
           <div style={SB.scoreTally}>
-            {(["guard", "spoilers"] as const).map((team, i) => (
-              <span key={team}>
-                {i === 1 && <span style={SB.tallyDivider}>:</span>}
-                <span
-                  style={{
-                    ...SB.tallyNum,
-                    color: TEAM_COLOR[team],
-                    textShadow: `0 0 14px ${TEAM_COLOR[team]}55`,
-                  }}
-                  aria-label={`${TEAMS[team].name} score: ${game.scores[team]}`}
-                >
-                  {game.scores[team]}
-                </span>
-                {i === 0 && <span style={SB.tallyDivider}>:</span>}
-              </span>
-            ))}
+            <TickerNumber
+              value={game.scores.guard}
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 32,
+                color: TEAM_COLOR.guard,
+                lineHeight: 1,
+              }}
+              aria-label={`Garden Guard: ${game.scores.guard}`}
+            />
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--arc-ink-faint)", margin: "0 4px" }}>:</span>
+            <TickerNumber
+              value={game.scores.spoilers}
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 32,
+                color: TEAM_COLOR.spoilers,
+                lineHeight: 1,
+              }}
+              aria-label={`Spoilers: ${game.scores.spoilers}`}
+            />
           </div>
         </div>
 
         {/* Team sections */}
         {teams.map(({ team, players }) => {
           const color = TEAM_COLOR[team];
+          const roleLabel = team === "guard" ? "DEF" : "ATK";
+          const aliveCount = players.filter((p) => p.alive).length;
           return (
             <div key={team} style={SB.section}>
-              {/* Team header */}
-              <div style={{ ...SB.teamHead, borderBottom: `2px solid ${color}55` }}>
-                <div style={SB.teamHeadLeft}>
+              {/* Team header bar */}
+              <div
+                style={{
+                  ...SB.teamHead,
+                  background: team === "guard" ? "var(--arc-green-dark)" : "var(--arc-red-dark)",
+                  borderBottom: `2px solid ${color}`,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {/* DEF/ATK badge — shape cue, not color-only */}
                   <span style={{
-                    ...SB.teamBadge,
-                    background: `${color}18`,
-                    border: `1px solid ${color}44`,
+                    fontFamily: "var(--font-display)",
+                    fontSize: 8,
+                    letterSpacing: "0.12em",
+                    background: "rgba(0,0,0,0.4)",
+                    border: `2px solid ${color}`,
+                    padding: "2px 6px",
                     color,
                   }}>
-                    {team === "guard" ? "DEF" : "ATK"}
+                    {roleLabel}
                   </span>
-                  <span style={{ ...SB.teamName, color }}>{TEAMS[team].name}</span>
-                  <span style={SB.teamPlayerCount}>
-                    {players.filter((p) => p.alive).length}/{players.length} alive
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: 10, color, letterSpacing: "0.04em" }}>
+                    {TEAMS[team].name.toUpperCase()}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: 8, color: "var(--arc-ink-faint)" }}>
+                    {aliveCount}/{players.length} ALIVE
                   </span>
                 </div>
-                <span style={{ ...SB.teamScoreLarge, color }}>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 16, color, lineHeight: 1 }}>
                   {game.scores[team]}
                 </span>
               </div>
 
               {/* Column headers */}
               <div style={SB.headerRow} role="row">
-                <span style={SB.colName} role="columnheader">Player</span>
-                <span style={{ ...SB.col, ...SB.colHeader }} role="columnheader">K</span>
-                <span style={{ ...SB.col, ...SB.colHeader }} role="columnheader">D</span>
-                <span style={{ ...SB.col, ...SB.colHeader }} role="columnheader">Score</span>
+                <span style={{ ...SB.colName, ...SB.colHeader }} role="columnheader">PLAYER</span>
+                <span style={{ ...SB.colNum, ...SB.colHeader }} role="columnheader">K</span>
+                <span style={{ ...SB.colNum, ...SB.colHeader }} role="columnheader">D</span>
+                <span style={{ ...SB.colNum, ...SB.colHeader }} role="columnheader">SCORE</span>
                 <span style={{ ...SB.colMoney, ...SB.colHeader }} role="columnheader">$</span>
-                <span style={{ ...SB.colW, ...SB.colHeader }} role="columnheader">Weapon</span>
+                <span style={{ ...SB.colWeapon, ...SB.colHeader }} role="columnheader">WEAPON</span>
               </div>
 
               {/* Player rows */}
               {players.map((p, idx) => {
                 const isMvp = p.score === topScore && p.score > 0;
                 const isMe = p.id === myId;
+                const rowBg = isMe
+                  ? "rgba(61,255,94,0.05)"
+                  : idx % 2 !== 0
+                  ? undefined
+                  : "transparent";
                 return (
                   <div
                     key={p.id}
+                    className={idx % 2 === 1 ? "arc-dither" : undefined}
                     style={{
                       ...SB.row,
-                      ...(isMe ? SB.meRow : {}),
                       opacity: p.alive ? 1 : 0.45,
-                      background: isMe
-                        ? "rgba(124,252,88,0.07)"
-                        : idx % 2 === 0
-                        ? "transparent"
-                        : "rgba(255,255,255,0.015)",
+                      background: rowBg,
+                      borderLeft: isMe ? `2px solid ${color}` : "2px solid transparent",
                     }}
                     role="row"
                   >
                     <span style={SB.colName} role="cell">
-                      <span style={SB.aliveIcon} aria-label={p.alive ? "Alive" : "Dead"}>
+                      {/* Alive/dead indicator */}
+                      <span
+                        aria-label={p.alive ? "Alive" : "Dead"}
+                        style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}
+                      >
                         {p.alive ? (
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                            <circle cx="5" cy="5" r="4" fill={color} fillOpacity="0.7"/>
-                          </svg>
+                          <span style={{ width: 6, height: 6, background: color, display: "inline-block", marginRight: 4 }} />
                         ) : (
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                            <circle cx="5" cy="5" r="4" stroke={color} strokeOpacity="0.4" strokeWidth="1.2"/>
-                            <path d="M3 3l4 4M7 3l-4 4" stroke={color} strokeOpacity="0.4" strokeWidth="1.1" strokeLinecap="round"/>
-                          </svg>
+                          <SkullIcon size={10} color={`${color}55`} style={{ marginRight: 4 }} />
                         )}
                       </span>
-                      <span style={{ ...SB.playerNameText, ...(isMe ? { color: "var(--leaf)", fontWeight: 600 } : {}) }}>
+                      <span style={{
+                        fontFamily: "var(--font-body)",
+                        fontSize: 18,
+                        color: isMe ? color : "var(--arc-white)",
+                        whiteSpace: "nowrap" as const,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}>
                         {p.name}
-                        {isMe && (
-                          <span style={SB.youBadge} aria-label="You">YOU</span>
-                        )}
                       </span>
-                      {p.isBot && <span style={SB.botTag} aria-label="Bot">BOT</span>}
+                      {isMe && (
+                        <span style={SB.youBadge} aria-label="You">YOU</span>
+                      )}
+                      {p.isBot && (
+                        <span style={SB.botChip} aria-label="Bot">BOT</span>
+                      )}
                       {isMvp && !p.isBot && (
-                        <span style={SB.mvpTag} aria-label="MVP" title="Top scorer">MVP</span>
+                        <span style={SB.mvpPlate} aria-label="MVP" title="Top scorer">
+                          <StarIcon size={8} style={{ marginRight: 2 }} />MVP
+                        </span>
                       )}
                       {p.hasBomb && (
-                        <span style={SB.bombTag} aria-label="Carrying bomb" title="Has bomb">&#9889;</span>
+                        <BombIcon size={10} color="var(--arc-red)" aria-label="Carrying bomb" style={{ marginLeft: 2 }} />
                       )}
                     </span>
-                    <span style={{ ...SB.col, color: p.kills > 0 ? "var(--ink)" : "var(--ink-faint)" }} role="cell">
+                    <span
+                      style={{
+                        ...SB.colNum,
+                        color: p.kills > 0 ? "var(--arc-white)" : "var(--arc-ink-faint)",
+                      }}
+                      role="cell"
+                    >
                       {p.kills}
                     </span>
-                    <span style={{ ...SB.col, color: "var(--ink-dim)" }} role="cell">
+                    <span style={{ ...SB.colNum, color: "var(--arc-ink-dim)" }} role="cell">
                       {p.deaths}
                     </span>
-                    <span style={{ ...SB.col, fontWeight: isMvp ? 700 : 400, color: isMvp ? "var(--gold)" : "var(--ink)" }} role="cell">
+                    <span
+                      style={{
+                        ...SB.colNum,
+                        color: isMvp ? "var(--arc-gold)" : "var(--arc-white)",
+                      }}
+                      role="cell"
+                    >
                       {p.score}
                     </span>
                     <span style={SB.colMoney} role="cell">${p.money}</span>
-                    <span style={SB.colW} role="cell">{WEAPONS[p.currentWeapon]?.name ?? "—"}</span>
+                    <span style={SB.colWeapon} role="cell">
+                      {WEAPONS[p.currentWeapon]?.name ?? "—"}
+                    </span>
                   </div>
                 );
               })}
@@ -163,7 +224,7 @@ export function Scoreboard({ game, myId }: { game: GameState; myId: string }) {
             </div>
           );
         })}
-      </div>
+      </PixelPanel>
     </div>
   );
 }
@@ -176,84 +237,37 @@ const SB: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     pointerEvents: "none",
+    zIndex: 45,
   },
   card: {
-    width: "min(860px, 94vw)",
-    padding: "1.4rem",
-    maxHeight: "88vh",
+    width: "min(880px, 94vw)",
+    maxHeight: "90vh",
     overflow: "auto",
     display: "flex",
     flexDirection: "column",
-    gap: "1.1rem",
+    gap: 0,
   },
-  /* Title */
   titleBar: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingBottom: "0.9rem",
-    borderBottom: "1px solid var(--panel-edge)",
-  },
-  titleLeft: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.35rem",
-  },
-  titleGame: {
-    fontFamily: "var(--font-display)",
-    fontSize: "1.3rem",
-    fontWeight: 700,
-    letterSpacing: "0.06em",
-    lineHeight: 1,
-  },
-  titleMeta: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.4rem",
+    padding: "12px 16px",
+    borderBottom: "2px solid var(--arc-black)",
   },
   metaPill: {
-    fontSize: "0.65rem",
     fontFamily: "var(--font-display)",
+    fontSize: 8,
     letterSpacing: "0.1em",
-    color: "var(--ink-dim)",
+    color: "var(--arc-ink-dim)",
   },
   metaSep: {
-    color: "var(--ink-faint)",
-    fontSize: "0.7rem",
+    color: "var(--arc-ink-faint)",
+    fontSize: 10,
   },
-  metaMap: {
-    fontSize: "0.65rem",
-    fontFamily: "var(--font-display)",
-    letterSpacing: "0.1em",
-    color: "var(--ink-faint)",
-    textTransform: "uppercase" as const,
-  },
-  metaRound: {
-    fontSize: "0.65rem",
-    fontFamily: "var(--font-display)",
-    letterSpacing: "0.1em",
-    color: "var(--ink-faint)",
-  },
-  /* Score tally */
   scoreTally: {
     display: "flex",
     alignItems: "baseline",
-    gap: "0.25rem",
-    fontFamily: "var(--font-display)",
   },
-  tallyNum: {
-    fontSize: "2rem",
-    fontWeight: 700,
-    lineHeight: 1,
-    letterSpacing: "-0.01em",
-  },
-  tallyDivider: {
-    color: "var(--ink-faint)",
-    fontSize: "1.4rem",
-    fontWeight: 400,
-    marginInline: "0.1em",
-  },
-  /* Team section */
   section: {
     display: "flex",
     flexDirection: "column",
@@ -263,151 +277,93 @@ const SB: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "0.4rem 0 0.55rem",
-    marginBottom: "0.25rem",
+    padding: "6px 16px",
   },
-  teamHeadLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.6rem",
-  },
-  teamBadge: {
-    fontSize: "0.58rem",
-    fontFamily: "var(--font-display)",
-    letterSpacing: "0.14em",
-    fontWeight: 700,
-    padding: "0.2em 0.6em",
-    borderRadius: 100,
-  },
-  teamName: {
-    fontFamily: "var(--font-display)",
-    fontSize: "1rem",
-    fontWeight: 700,
-    letterSpacing: "0.03em",
-  },
-  teamPlayerCount: {
-    fontSize: "0.68rem",
-    color: "var(--ink-faint)",
-    fontFamily: "var(--font-display)",
-  },
-  teamScoreLarge: {
-    fontFamily: "var(--font-display)",
-    fontSize: "1.5rem",
-    fontWeight: 700,
-    lineHeight: 1,
-  },
-  /* Table */
   headerRow: {
     display: "grid",
-    gridTemplateColumns: "1fr 44px 44px 60px 80px 130px",
-    fontSize: "0.6rem",
-    color: "var(--ink-faint)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.1em",
+    gridTemplateColumns: "1fr 44px 44px 64px 80px 130px",
     fontFamily: "var(--font-display)",
-    padding: "0.3em 0.4em",
-    borderBottom: "1px solid var(--panel-edge)",
+    fontSize: 8,
+    letterSpacing: "0.1em",
+    color: "var(--arc-ink-faint)",
+    padding: "4px 16px",
+    borderBottom: "2px solid var(--arc-black)",
   },
   colHeader: {
-    color: "var(--ink-faint)",
+    textAlign: "center" as const,
   },
   row: {
     display: "grid",
-    gridTemplateColumns: "1fr 44px 44px 60px 80px 130px",
-    fontSize: "0.88rem",
-    padding: "0.38em 0.4em",
-    borderRadius: 5,
+    gridTemplateColumns: "1fr 44px 44px 64px 80px 130px",
+    padding: "4px 16px",
     alignItems: "center",
-    transition: "background 0.1s",
-  },
-  meRow: {
-    boxShadow: "inset 2px 0 0 var(--leaf)",
+    borderBottom: "1px solid var(--arc-black)",
   },
   colName: {
-    fontFamily: "var(--font-body)",
     display: "flex",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
     minWidth: 0,
     overflow: "hidden",
   },
-  aliveIcon: {
-    display: "flex",
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  playerNameText: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.4em",
-    whiteSpace: "nowrap" as const,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    minWidth: 0,
-  },
-  youBadge: {
-    fontSize: "0.55rem",
-    fontFamily: "var(--font-display)",
-    letterSpacing: "0.08em",
-    color: "var(--leaf)",
-    background: "rgba(124,252,88,0.12)",
-    border: "1px solid rgba(124,252,88,0.25)",
-    padding: "0.1em 0.45em",
-    borderRadius: 4,
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  col: {
+  colNum: {
     textAlign: "center" as const,
     fontFamily: "var(--font-display)",
-    fontSize: "0.9rem",
+    fontSize: 10,
   },
   colMoney: {
     textAlign: "center" as const,
-    color: "var(--gold)",
     fontFamily: "var(--font-display)",
-    fontSize: "0.85rem",
+    fontSize: 10,
+    color: "var(--arc-gold)",
   },
-  colW: {
-    fontSize: "0.75rem",
-    color: "var(--ink-dim)",
+  colWeapon: {
     fontFamily: "var(--font-body)",
+    fontSize: 16,
+    color: "var(--arc-ink-dim)",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap" as const,
   },
-  botTag: {
-    fontSize: "0.55rem",
-    background: "var(--bg-3)",
-    color: "var(--ink-faint)",
-    padding: "0.1em 0.4em",
-    borderRadius: 3,
-    letterSpacing: "0.06em",
+  youBadge: {
     fontFamily: "var(--font-display)",
-    flexShrink: 0,
-  },
-  mvpTag: {
-    fontSize: "0.55rem",
-    background: "rgba(255,210,63,0.18)",
-    color: "var(--gold)",
-    border: "1px solid rgba(255,210,63,0.35)",
-    padding: "0.1em 0.45em",
-    borderRadius: 4,
+    fontSize: 8,
     letterSpacing: "0.08em",
-    fontFamily: "var(--font-display)",
-    fontWeight: 700,
+    color: "var(--arc-green)",
+    background: "rgba(61,255,94,0.12)",
+    border: "2px solid var(--arc-green)",
+    padding: "1px 4px",
     flexShrink: 0,
+    marginLeft: 4,
   },
-  bombTag: {
-    fontSize: "0.75rem",
-    color: "var(--tomato)",
+  botChip: {
+    fontFamily: "var(--font-display)",
+    fontSize: 8,
+    background: "var(--arc-panel-hi)",
+    color: "var(--arc-ink-faint)",
+    border: "2px solid var(--arc-black)",
+    padding: "1px 4px",
     flexShrink: 0,
-    lineHeight: 1,
+    marginLeft: 4,
+    letterSpacing: "0.06em",
+  },
+  mvpPlate: {
+    display: "inline-flex",
+    alignItems: "center",
+    fontFamily: "var(--font-display)",
+    fontSize: 8,
+    background: "rgba(255,210,63,0.15)",
+    color: "var(--arc-gold)",
+    border: "2px solid var(--arc-gold)",
+    padding: "1px 4px",
+    flexShrink: 0,
+    marginLeft: 4,
+    letterSpacing: "0.06em",
   },
   emptyRow: {
-    padding: "0.6em 0.4em",
-    color: "var(--ink-faint)",
-    fontSize: "0.8rem",
-    fontStyle: "italic",
+    padding: "8px 16px",
+    fontFamily: "var(--font-body)",
+    fontSize: 16,
+    color: "var(--arc-ink-faint)",
   },
 };

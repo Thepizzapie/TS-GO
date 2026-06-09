@@ -29,6 +29,8 @@ export interface TomatoCharacterProps {
   onGround?: boolean;
   /** 0..1, briefly >0 right after taking damage; decays externally. */
   hitFlash?: number;
+  /** look pitch in radians — tilts the head slightly for juicier reads. */
+  pitch?: number;
 }
 
 // Team reads from body color; a bright accent helmet/visor doubles as the team tag.
@@ -53,6 +55,7 @@ export function TomatoCharacter({
   speed = 0,
   onGround = true,
   hitFlash = 0,
+  pitch = 0,
 }: TomatoCharacterProps) {
   const bodyColor = BODY[team];
   const bodyDark = BODY_DK[team];
@@ -64,6 +67,7 @@ export function TomatoCharacter({
   const armL = useRef<THREE.Group>(null);
   const armR = useRef<THREE.Group>(null);
   const stem = useRef<THREE.Group>(null);
+  const headGroup = useRef<THREE.Group>(null);
   const bodyMat = useRef<THREE.MeshStandardMaterial>(null);
   const headMat = useRef<THREE.MeshStandardMaterial>(null);
 
@@ -75,6 +79,8 @@ export function TomatoCharacter({
     bob: 0,
     emis: 0,
     stemLag: 0,
+    crouch: 1, // smoothed Y-scale toward the crouch target (~120ms)
+    pitchSmooth: 0,
   });
 
   useFrame((_, rawDt) => {
@@ -112,7 +118,10 @@ export function TomatoCharacter({
     a.bob += (tBob - a.bob) * k;
     a.lean += (tLean - a.lean) * k;
 
-    const crouchScale = crouching ? CROUCH_HEIGHT / STAND_HEIGHT : 1;
+    // G6: smooth the crouch transition (~120ms) instead of snapping
+    const crouchTarget = crouching ? CROUCH_HEIGHT / STAND_HEIGHT : 1;
+    a.crouch += (crouchTarget - a.crouch) * damp(dt, 18);
+    const crouchScale = a.crouch;
 
     const g = root.current;
     if (g) {
@@ -135,6 +144,12 @@ export function TomatoCharacter({
       const target = -a.lean * 0.5 + (walking ? Math.sin(a.step) * 0.06 : 0);
       a.stemLag += (target - a.stemLag) * damp(dt, 9);
       stem.current.rotation.z = a.stemLag;
+    }
+
+    // V7: head tilts slightly with look pitch (juicier reads over cover)
+    if (headGroup.current) {
+      a.pitchSmooth += (pitch - a.pitchSmooth) * damp(dt, 10);
+      headGroup.current.rotation.x = a.pitchSmooth * 0.28;
     }
 
     // ---- hit flash (body + head emissive → white) ----
@@ -202,40 +217,44 @@ export function TomatoCharacter({
         </mesh>
       </group>
 
-      {/* HEAD cube — sits in the headshot zone (top of the capsule) */}
-      <mesh position={[0, 1.46, 0]} castShadow>
-        <boxGeometry args={[0.5, 0.48, 0.48]} />
-        <meshStandardMaterial ref={headMat} color={bodyColor} roughness={0.85} metalness={0.04} flatShading />
-      </mesh>
-      {/* visor stripe (team accent) wrapping the head front */}
-      <mesh position={[0, 1.5, -0.2]}>
-        <boxGeometry args={[0.52, 0.14, 0.12]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.55} roughness={0.5} flatShading />
-      </mesh>
-      {/* blocky eyes on the -Z face */}
-      <mesh position={[-0.12, 1.44, -0.25]}>
-        <boxGeometry args={[0.1, 0.12, 0.04]} />
-        <meshStandardMaterial color="#16110f" roughness={0.6} flatShading />
-      </mesh>
-      <mesh position={[0.12, 1.44, -0.25]}>
-        <boxGeometry args={[0.1, 0.12, 0.04]} />
-        <meshStandardMaterial color="#16110f" roughness={0.6} flatShading />
-      </mesh>
+      {/* HEAD group — pivots at head centre (y=1.46) so look-pitch can tilt it.
+          All children re-baselined to the group origin. */}
+      <group ref={headGroup} position={[0, 1.46, 0]}>
+        {/* head cube — sits in the headshot zone (top of the capsule) */}
+        <mesh castShadow>
+          <boxGeometry args={[0.5, 0.48, 0.48]} />
+          <meshStandardMaterial ref={headMat} color={bodyColor} roughness={0.85} metalness={0.04} flatShading />
+        </mesh>
+        {/* visor stripe (team accent) wrapping the head front */}
+        <mesh position={[0, 0.04, -0.2]}>
+          <boxGeometry args={[0.52, 0.14, 0.12]} />
+          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.55} roughness={0.5} flatShading />
+        </mesh>
+        {/* blocky eyes on the -Z face */}
+        <mesh position={[-0.12, -0.02, -0.25]}>
+          <boxGeometry args={[0.1, 0.12, 0.04]} />
+          <meshStandardMaterial color="#16110f" roughness={0.6} flatShading />
+        </mesh>
+        <mesh position={[0.12, -0.02, -0.25]}>
+          <boxGeometry args={[0.1, 0.12, 0.04]} />
+          <meshStandardMaterial color="#16110f" roughness={0.6} flatShading />
+        </mesh>
 
-      {/* stem + blocky leaf (cosmetic tomato identity; small so it isn't mistaken for the hitbox) */}
-      <group ref={stem} position={[0, 1.7, 0]}>
-        <mesh position={[0, 0.08, 0]}>
-          <boxGeometry args={[0.1, 0.16, 0.1]} />
-          <meshStandardMaterial color="#4a7a2a" roughness={0.9} flatShading />
-        </mesh>
-        <mesh position={[0.1, 0.1, 0]} rotation={[0, 0, -0.5]}>
-          <boxGeometry args={[0.18, 0.06, 0.1]} />
-          <meshStandardMaterial color="#3f9e3a" roughness={0.85} flatShading />
-        </mesh>
-        <mesh position={[-0.1, 0.1, 0]} rotation={[0, 0, 0.5]}>
-          <boxGeometry args={[0.18, 0.06, 0.1]} />
-          <meshStandardMaterial color="#3f9e3a" roughness={0.85} flatShading />
-        </mesh>
+        {/* stem + blocky leaf (cosmetic tomato identity) */}
+        <group ref={stem} position={[0, 0.24, 0]}>
+          <mesh position={[0, 0.08, 0]}>
+            <boxGeometry args={[0.1, 0.16, 0.1]} />
+            <meshStandardMaterial color="#4a7a2a" roughness={0.9} flatShading />
+          </mesh>
+          <mesh position={[0.1, 0.1, 0]} rotation={[0, 0, -0.5]}>
+            <boxGeometry args={[0.18, 0.06, 0.1]} />
+            <meshStandardMaterial color="#3f9e3a" roughness={0.85} flatShading />
+          </mesh>
+          <mesh position={[-0.1, 0.1, 0]} rotation={[0, 0, 0.5]}>
+            <boxGeometry args={[0.18, 0.06, 0.1]} />
+            <meshStandardMaterial color="#3f9e3a" roughness={0.85} flatShading />
+          </mesh>
+        </group>
       </group>
 
       {/* strapped Salsa Bomb */}

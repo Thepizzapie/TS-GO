@@ -23,7 +23,7 @@ export function GameCanvas({ engine }: { engine: GameEngine }) {
         antialias: true,
         powerPreference: "high-performance",
         toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.05,
+        toneMappingExposure: 1.1,
       }}
       style={{ position: "fixed", inset: 0, background: "#0a0f0a" }}
     >

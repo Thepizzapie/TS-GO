@@ -176,17 +176,49 @@ function Connecting() {
         height: "100vh",
         display: "flex",
         flexDirection: "column",
-        gap: "1rem",
+        gap: "1.25rem",
         alignItems: "center",
         justifyContent: "center",
-        background: "var(--bg-0)",
+        background: "var(--arc-bg0)",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      <div style={{ fontSize: "2.5rem", animation: "spin 1.4s linear infinite" }}>🍅</div>
-      <div style={{ fontFamily: "var(--font-display)", letterSpacing: "0.1em", color: "var(--ink-dim)" }}>
-        CONNECTING…
+      {/* Scanline backdrop */}
+      <div
+        style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        className="arc-scanlines"
+        aria-hidden="true"
+      />
+      {/* Tomato spinner — steps(8) per arc-spin-steps */}
+      <div
+        style={{
+          fontSize: "2.5rem",
+          animation: "arc-spin-steps 0.9s steps(8) infinite",
+          lineHeight: 1,
+        }}
+        aria-hidden="true"
+        role="status"
+      >
+        🍅
       </div>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: "16px",
+          letterSpacing: "0.15em",
+          color: "var(--arc-ink-dim)",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.3em",
+        }}
+      >
+        NOW LOADING
+        {/* Three staggered blinking dots */}
+        <span style={{ animation: "arc-blink 0.9s steps(1) 0s infinite" }}>.</span>
+        <span style={{ animation: "arc-blink 0.9s steps(1) 0.3s infinite" }}>.</span>
+        <span style={{ animation: "arc-blink 0.9s steps(1) 0.6s infinite" }}>.</span>
+      </div>
     </main>
   );
 }

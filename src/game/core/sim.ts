@@ -33,7 +33,6 @@ import {
   buyEquipment,
   buyWeapon,
   computeDamage,
-  enemyOf,
   lossBonus,
   makePlayer,
   respawn,
@@ -52,6 +51,7 @@ import {
   FLASH_MAX_MS,
   FLASH_RADIUS,
   GRAVITY,
+  HIT_SLOW,
   KILLFEED_TTL,
   MAX_BLOOM,
   MAX_MONEY,
@@ -392,6 +392,11 @@ export function applyShoot(state: GameState, shooterId: string, msg: ShotMsg): v
     const dr = computeDamage(p.currentWeapon, h.dist, h.headshot, t.armor, t.helmet);
     t.armor = Math.max(0, t.armor - dr.armor);
     t.hp -= dr.hp;
+    // G1: dampen horizontal velocity on meaningful hits (host-authoritative only).
+    if (dr.hp >= 10) {
+      t.vel[0] *= HIT_SLOW;
+      t.vel[2] *= HIT_SLOW;
+    }
     if (t.hp <= 0) killPlayer(state, t, p, p.currentWeapon, h.headshot);
   }
 }
@@ -655,7 +660,6 @@ function endRound(state: GameState, reason: RoundEndReason, winner: TeamId): voi
   state.scores[winner] += 1;
   state.phaseEndsAt = state.now + ROUND_END_DELAY * 1000;
 
-  const loser = enemyOf(winner);
   for (const p of Object.values(state.players)) {
     if (p.team === winner) {
       p.lossStreak = 0;
@@ -673,7 +677,6 @@ function endRound(state: GameState, reason: RoundEndReason, winner: TeamId): voi
     const d = state.players[state.bomb.defuser];
     if (d) award(d, REWARD_BOMB_DEFUSE);
   }
-  void loser;
 }
 
 function endMatch(state: GameState, winner: TeamId | null): void {

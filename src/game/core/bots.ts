@@ -59,6 +59,13 @@ interface BotMem {
   siteRound: number;
   patrolNode: number; // current patrol waypoint (defenders)
   patrolUntil: number;
+  // engagement tracking (reset on new target)
+  engageStart: number; // state.now when this target was first engaged
+  // burst-fire discipline
+  burstShotsLeft: number; // shots remaining in the current burst window
+  burstPauseUntil: number; // suppress fire until this timestamp (ms)
+  // hold/peek hesitation at the start of an engagement
+  holdUntil: number; // suppress advance push until this timestamp (ms)
 }
 
 const mems = new Map<string, BotMem>();
@@ -89,6 +96,10 @@ function mem(id: string, p: PlayerState): BotMem {
       siteRound: -1,
       patrolNode: -1,
       patrolUntil: 0,
+      engageStart: 0,
+      burstShotsLeft: 0,
+      burstPauseUntil: 0,
+      holdUntil: 0,
     };
     mems.set(id, m);
   }
@@ -347,8 +358,18 @@ export function botThink(state: GameState, bot: PlayerState, map: MapDef, dt: nu
   if (!target) {
     target = acquireTarget(state, bot, map);
     if (target) {
+      const isNewTarget = m.targetId !== target.id;
       m.targetId = target.id;
       m.firstSeenAt = now;
+      if (isNewTarget) {
+        // Reset per-engagement state for each new acquisition.
+        m.engageStart = now;
+        m.burstShotsLeft = 0;
+        m.burstPauseUntil = 0;
+        // Low/mid skill bots hesitate before pushing into an engagement.
+        const hesitateMs = (1 - bot.botSkill) * 350;
+        m.holdUntil = hesitateMs > 0 ? now + hesitateMs * (0.5 + Math.random() * 0.5) : 0;
+      }
     } else {
       m.targetId = null;
     }
@@ -512,8 +533,11 @@ function engageTarget(
   }
   const right: [number, number] = [Math.cos(m.aimYaw), Math.sin(m.aimYaw)];
   const fwd: [number, number] = [Math.sin(m.aimYaw), -Math.cos(m.aimYaw)];
-  // keep mid-range: advance if far, back off if too close
-  const closeWish = dist > 18 ? 0.5 : dist < 6 ? -0.4 : 0;
+  // keep mid-range: advance if far, back off if too close; suppress push during hesitation.
+  const holdingPosition = state.now < m.holdUntil;
+  const rawCloseWish = dist > 18 ? 0.5 : dist < 6 ? -0.4 : 0;
+  // Low/mid skill bots hold position during the initial hesitation window.
+  const closeWish = holdingPosition ? 0 : rawCloseWish;
   const worldX = right[0] * m.strafe + fwd[0] * closeWish;
   const worldZ = right[1] * m.strafe + fwd[1] * closeWish;
   input.move = [
@@ -529,21 +553,61 @@ function engageTarget(
     return;
   }
 
-  // reaction gate, then fire if aim is close enough
-  const reaction = 70 + (1 - bot.botSkill) * 240;
-  const aligned = Math.abs(angleDelta(m.aimYaw, desiredYaw)) < 0.09 + (1 - bot.botSkill) * 0.06;
+  // Reaction gate: increased base delay, steeper low-skill penalty.
+  // Before: 70 + (1-skill)*240  → 70ms (skill=1) … 310ms (skill=0)
+  // After:  120 + (1-skill)*380 → 120ms (skill=1) … 500ms (skill=0)
+  const reaction = 120 + (1 - bot.botSkill) * 380;
+
+  // Alignment threshold is widened on initial engagement and tightens as the
+  // bot tracks the target.  engageMs grows from 0 → ~1200 ms.
+  const engageMs = state.now - m.engageStart;
+  const warmupRatio = Math.max(0, 1 - engageMs / 1200);
+  // Extra angular error at the start: up to 0.20 rad (≈11.5°) at skill=0, 0 at skill=1.
+  const warmupErr = (1 - bot.botSkill) * 0.20 * warmupRatio;
+  const baseAlignment = 0.09 + (1 - bot.botSkill) * 0.06;
+  const aligned = Math.abs(angleDelta(m.aimYaw, desiredYaw)) < baseAlignment + warmupErr;
+
   if (state.now - m.firstSeenAt > reaction && aligned && dist <= w.range) {
+    // Burst-fire discipline: bots fire in short bursts with pauses between.
+    // High skill (≥0.8) barely notice — very short pauses, large bursts.
+    if (state.now < m.burstPauseUntil) {
+      // In the inter-burst pause; no shot this frame.
+      return;
+    }
+    if (m.burstShotsLeft <= 0) {
+      // Start a new burst.
+      // Burst size: 2–4 shots at low skill, 4–8 at high skill.
+      const minBurst = Math.round(2 + bot.botSkill * 2);
+      const maxBurst = Math.round(4 + bot.botSkill * 4);
+      m.burstShotsLeft = minBurst + Math.floor(Math.random() * (maxBurst - minBurst + 1));
+    }
     const shot = makeShot(state, bot, map);
-    if (shot) cmd.shoot = shot;
+    if (shot) {
+      cmd.shoot = shot;
+      m.burstShotsLeft--;
+      if (m.burstShotsLeft <= 0) {
+        // Schedule the inter-burst pause: 180–350ms at low skill, 60–100ms at high.
+        const pauseBase = 60 + (1 - bot.botSkill) * 270;
+        const pauseJitter = (1 - bot.botSkill) * 100;
+        m.burstPauseUntil = state.now + pauseBase + Math.random() * pauseJitter;
+      }
+    }
   }
 }
 
 function makeShot(state: GameState, bot: PlayerState, map: MapDef): ShotMsg | null {
   const eye = eyePos(bot);
   const w = WEAPONS[bot.currentWeapon];
+  const m = mems.get(bot.id);
   // aim error shrinks with skill, grows with weapon spread + movement
   const moving = Math.hypot(bot.vel[0], bot.vel[2]) > 1.2 ? 1.7 : 1;
-  const errDeg = (w.spread * 0.7 + (1 - bot.botSkill) * 3.2) * moving;
+  // Warmup spray: extra angular scatter during the first ~1200 ms of an
+  // engagement.  At skill=0 this adds up to 5° of extra scatter that
+  // tightens to 0 as the bot tracks the target. High skill barely affected.
+  const engageMs = m ? state.now - m.engageStart : 0;
+  const warmupRatio = Math.max(0, 1 - engageMs / 1200);
+  const warmupErrDeg = (1 - bot.botSkill) * 5.0 * warmupRatio;
+  const errDeg = (w.spread * 0.7 + (1 - bot.botSkill) * 3.2) * moving + warmupErrDeg;
   const jitter = (deg: number) => ((Math.random() - 0.5) * 2 * deg * Math.PI) / 180;
   const yaw = bot.yaw + jitter(errDeg);
   const pitch = clamp(bot.pitch + jitter(errDeg), -1.3, 1.3);

@@ -49,7 +49,16 @@ export type FxEvent =
   | { k: "explode"; pos: Vec3 }
   | { k: "nade"; weapon: WeaponId; origin: Vec3; dir: Vec3 }
   | { k: "flash"; pid: string }
-  | { k: "round"; result: "win" | "lose" | "start" };
+  | { k: "round"; result: "win" | "lose" | "start" }
+  // --- additive extensions (backward-compatible) ---
+  /** A player just jumped (spatialized low-volume jump grunt). */
+  | { k: "jump"; pid: string; pos: Vec3 }
+  /** Plant or defuse action started this frame (actionProgress crossed 0 → >0). */
+  | { k: "action_start"; action: "plant" | "defuse"; pos: Vec3 }
+  /** Progress threshold beep during plant/defuse (accelerating tempo). */
+  | { k: "progress_beep"; pos: Vec3; pitch: number }
+  /** Grenade bounced off a surface (vel.y sign flipped). */
+  | { k: "nade_bounce"; pos: Vec3; pitch: number };
 
 export type HostMsg =
   | { t: "welcome"; youId: string; version: number }

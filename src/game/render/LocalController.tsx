@@ -48,6 +48,8 @@ export function LocalController({ engine }: { engine: GameEngine }) {
   const lastShot = useRef(0);
   const recoilIdx = useRef(0);
   const lastRecoilShot = useRef(0);
+  // V4: FOV punch — extra kick added on each shot, recovered by FOV lerp
+  const fovPunch = useRef(0);
   const lastStep = useRef(0);
   const wantThrow = useRef(false);
   const prevGround = useRef(true);
@@ -149,7 +151,11 @@ export function LocalController({ engine }: { engine: GameEngine }) {
       const m = engine.me;
       if (!m) return;
       const item = m.inventory.find((i) => WEAPONS[i.id].slot === slot);
-      if (item) engine.switchWeapon(item.id);
+      if (!item) return;
+      engine.switchWeapon(item.id);
+      // Weapon switch sound — "pickup" SoundId, pitch varies per slot
+      const slotIndex = ["primary", "secondary", "melee", "grenade"].indexOf(slot);
+      audio.play("pickup", { rate: 1.05 + slotIndex * 0.05 });
     }
 
     return () => {
@@ -181,7 +187,12 @@ export function LocalController({ engine }: { engine: GameEngine }) {
     const baseFov = store.settings.fov;
     const targetFov = aiming ? baseFov * (isSniper ? 0.4 : 0.78) : baseFov;
     if (cam.isPerspectiveCamera) {
-      cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 16);
+      // V4: FOV punch — decay toward zero; the existing lerp toward targetFov
+      // also recovers it naturally (fovPunch is additive on top of targetFov).
+      fovPunch.current *= 1 - Math.min(1, dt * 12);
+      if (Math.abs(fovPunch.current) < 0.01) fovPunch.current = 0;
+      const fovTarget = targetFov + fovPunch.current;
+      cam.fov += (fovTarget - cam.fov) * Math.min(1, dt * 16);
       cam.updateProjectionMatrix();
     }
     const scoped = aiming && isSniper && cam.fov < baseFov * 0.62;
@@ -300,6 +311,8 @@ export function LocalController({ engine }: { engine: GameEngine }) {
   function handleFire(me: PlayerState, eye: Vec3, yaw: number, pitch: number, aiming: boolean) {
     const w = WEAPONS[me.currentWeapon];
     const isMelee = w.slot === "melee";
+    const isSniper = me.currentWeapon === SNIPER;
+    const isShotgun = w.pellets > 1;
     if (w.slot === "grenade") {
       if (mouseDown.current && !prevMouse.current) tryThrow(me, eye, yaw, pitch);
       return;
@@ -362,8 +375,13 @@ export function LocalController({ engine }: { engine: GameEngine }) {
     // ---- feedback ----
     audio.play(weaponSoundId(me.currentWeapon), { volume: 0.9 });
     if (didHit) {
-      audio.play(killed ? "headshot" : headHit ? "headshot" : "hitmarker");
+      // kill → low crunchy confirm; headshot adds the bright "dink" on top
+      if (killed) audio.play("kill_confirm");
+      audio.play(headHit ? "headshot" : "hitmarker");
       popDamage({ amount: dmgSum, head: headHit, kill: killed });
+      // Extra camera kick on confirmed hit — punchy confirmation feel.
+      // Kill gets double magnitude; both are tiny so they don't fight the recoil.
+      addShake(killed ? 0.03 : 0.015);
     }
     addShake(0.01 + w.recoil * 0.0035);
 
@@ -371,9 +389,16 @@ export function LocalController({ engine }: { engine: GameEngine }) {
     if (now - lastRecoilShot.current > 250) recoilIdx.current = 0;
     recoilIdx.current++;
     lastRecoilShot.current = now;
-    const climb = Math.min(1, recoilIdx.current / 7);
-    rPitch.current += w.recoil * 0.0032 * (0.7 + climb);
+    // G5: first-shot climb factor ~0.3, grows to ~1.0 over the spray
+    const sprayT = Math.min(1, (recoilIdx.current - 1) / 7); // 0 on first shot
+    const climbFactor = 0.3 + sprayT * 0.7; // 0.3 → 1.0
+    rPitch.current += w.recoil * 0.0032 * climbFactor;
     rYaw.current += Math.sin(recoilIdx.current * 1.7) * w.recoil * 0.0017;
+
+    // V4: FOV punch — scaled by recoil; heavier for sniper/shotgun
+    const fovKickScale = isSniper || isShotgun ? 2.8 : 1.0;
+    // cap so buffered shots after a lag spike can't snowball the FOV
+    fovPunch.current = Math.min(8, fovPunch.current + w.recoil * 0.18 * fovKickScale * climbFactor);
 
     // optimistic ammo for clients (host authoritative; corrected by snapshot)
     if (engine.role === "client" && item && !isMelee) item.ammo = Math.max(0, item.ammo - 1);

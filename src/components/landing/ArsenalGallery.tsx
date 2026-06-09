@@ -1,14 +1,27 @@
 import { BUY_CATEGORIES, WEAPONS } from '@/game/core/weapons';
 import type { WeaponDef } from '@/game/core/types';
+import { SegmentBar } from '@/components/arcade/SegmentBar';
 
-function StatBar({ label, value, max }: { label: string; value: number; max: number }) {
-  const pct = Math.min(100, Math.round((value / max) * 100));
+function StatRow({
+  label,
+  value,
+  max,
+}: {
+  label: string;
+  value: number;
+  max: number;
+}) {
   return (
     <div className="lp-stat-row">
       <span className="lp-stat-label">{label}</span>
-      <div className="lp-stat-track" role="presentation">
-        <div className="lp-stat-fill" style={{ width: `${pct}%` }} />
-      </div>
+      <SegmentBar
+        value={value}
+        max={max}
+        segments={8}
+        color="var(--arc-green)"
+        height={6}
+        style={{ flex: 1 }}
+      />
       <span className="lp-stat-val">{value}</span>
     </div>
   );
@@ -18,7 +31,6 @@ function WeaponCard({ weapon }: { weapon: WeaponDef }) {
   const isFree = weapon.price === 0;
   const isGrenade = weapon.slot === 'grenade';
 
-  // Normalize for stat bars
   const maxDmg = 130;
   const maxRpm = 900;
 
@@ -42,13 +54,13 @@ function WeaponCard({ weapon }: { weapon: WeaponDef }) {
 
       {!isGrenade && (
         <div className="lp-weapon-stats">
-          <StatBar label="DMG" value={weapon.damage} max={maxDmg} />
-          <StatBar label="RPM" value={weapon.rpm} max={maxRpm} />
+          <StatRow label="DMG" value={weapon.damage} max={maxDmg} />
+          <StatRow label="RPM" value={weapon.rpm} max={maxRpm} />
         </div>
       )}
       {isGrenade && weapon.blastRadius != null && (
         <div className="lp-weapon-stats">
-          <StatBar label="BLAST" value={weapon.blastRadius} max={12} />
+          <StatRow label="BLAST" value={weapon.blastRadius} max={12} />
         </div>
       )}
     </article>
@@ -59,37 +71,38 @@ function WeaponGlyph({ slot }: { slot: string }) {
   if (slot === 'melee') {
     return (
       <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <rect x="10" y="22" width="28" height="4" rx="2" fill="currentColor" opacity="0.9" />
-        <rect x="6" y="20" width="4" height="8" rx="1" fill="currentColor" opacity="0.6" />
-        <rect x="34" y="18" width="8" height="12" rx="2" fill="var(--tomato)" opacity="0.8" />
+        <rect x="10" y="22" width="28" height="4" fill="currentColor" opacity="0.9" />
+        <rect x="6" y="20" width="4" height="8" fill="currentColor" opacity="0.6" />
+        <rect x="34" y="18" width="8" height="12" fill="var(--arc-red)" opacity="0.8" />
       </svg>
     );
   }
   if (slot === 'secondary') {
     return (
       <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <rect x="8" y="20" width="20" height="8" rx="3" fill="currentColor" opacity="0.9" />
-        <rect x="24" y="18" width="12" height="4" rx="2" fill="currentColor" opacity="0.7" />
-        <rect x="14" y="28" width="8" height="6" rx="2" fill="currentColor" opacity="0.5" />
+        <rect x="8" y="20" width="20" height="8" fill="currentColor" opacity="0.9" />
+        <rect x="24" y="18" width="12" height="4" fill="currentColor" opacity="0.7" />
+        <rect x="14" y="28" width="8" height="6" fill="currentColor" opacity="0.5" />
       </svg>
     );
   }
   if (slot === 'grenade') {
     return (
       <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <circle cx="24" cy="26" r="10" fill="var(--tomato)" opacity="0.8" />
-        <rect x="22" y="12" width="4" height="8" rx="2" fill="currentColor" opacity="0.7" />
-        <circle cx="24" cy="26" r="6" stroke="var(--leaf)" strokeWidth="1.5" fill="none" opacity="0.5" />
+        {/* Square body — pixel voxel style */}
+        <rect x="14" y="16" width="20" height="20" fill="var(--arc-red)" opacity="0.8" />
+        <rect x="20" y="10" width="8" height="8" fill="currentColor" opacity="0.7" />
+        <rect x="16" y="22" width="16" height="2" stroke="var(--arc-green)" strokeWidth="1" fill="none" opacity="0.5" />
       </svg>
     );
   }
-  // primary rifle/smg/shotgun/sniper
+  // primary rifle/smg/shotgun/sniper — blocky pixel silhouette
   return (
     <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-      <rect x="4" y="21" width="32" height="6" rx="3" fill="currentColor" opacity="0.9" />
-      <rect x="32" y="19" width="10" height="4" rx="1.5" fill="currentColor" opacity="0.7" />
-      <rect x="12" y="27" width="10" height="7" rx="2" fill="currentColor" opacity="0.5" />
-      <circle cx="40" cy="21" r="2" fill="var(--leaf)" opacity="0.8" />
+      <rect x="4" y="21" width="32" height="6" fill="currentColor" opacity="0.9" />
+      <rect x="32" y="19" width="10" height="4" fill="currentColor" opacity="0.7" />
+      <rect x="12" y="27" width="10" height="7" fill="currentColor" opacity="0.5" />
+      <rect x="38" y="19" width="4" height="4" fill="var(--arc-green)" opacity="0.8" />
     </svg>
   );
 }

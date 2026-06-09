@@ -1,9 +1,10 @@
 "use client";
 /**
- * GrenadeArc — a dotted trajectory preview shown while you're holding a grenade,
- * so you can judge a throw before committing. Client-side cosmetic: simulates a
- * simple ballistic arc from the local eye along the aim, stopping at the first
- * wall or the ground. Pooled dots, updated imperatively each frame.
+ * GrenadeArc — a dotted trajectory preview shown while you're holding a
+ * grenade. Dots changed from spheres to boxes for the voxel pixel style.
+ *
+ * No other logic changes — ballistic sim, pool management, and all core
+ * imports are identical to the previous version.
  */
 import { useRef } from "react";
 import * as THREE from "three";
@@ -56,14 +57,18 @@ export function GrenadeArc({ engine }: { engine: GameEngine }) {
       px += vx * dt;
       py += vy * dt;
       pz += vz * dt;
-      // ground / out-of-bounds / wall stop
       if (py <= 0.1 || Math.abs(px) > map.bounds[0] || Math.abs(pz) > map.bounds[1] || insideBox(px, py, pz, map)) {
         stopped = true;
       }
       m.position.set(px, py, pz);
       m.visible = true;
       const t = i / N_DOTS;
-      m.scale.setScalar(0.07 * (1 - t * 0.5));
+      // Box dots scale slightly (fading away toward the end of the arc)
+      const sc = 0.07 * (1 - t * 0.5);
+      m.scale.setScalar(sc);
+      // Slow tumble — reuse the loop index as a cheap deterministic rotation
+      m.rotation.x = t * 2.1;
+      m.rotation.y = t * 1.4;
     }
   });
 
@@ -71,7 +76,8 @@ export function GrenadeArc({ engine }: { engine: GameEngine }) {
     <group>
       {Array.from({ length: N_DOTS }).map((_, i) => (
         <mesh key={i} ref={(el) => { if (el) dots.current[i] = el; }} visible={false}>
-          <sphereGeometry args={[1, 6, 5]} />
+          {/* box instead of sphere — voxel pixel style */}
+          <boxGeometry args={[1, 1, 1]} />
           <meshBasicMaterial color="#7CFC58" transparent opacity={0.8} depthWrite={false} toneMapped={false} />
         </mesh>
       ))}

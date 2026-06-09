@@ -1,8 +1,9 @@
 "use client";
 /**
- * Lobby — the pre-match room. Host edits config + starts; everyone picks a team
- * and sees the roster. Reads the broadcast LobbyState from the store; actions go
- * through the LobbyHandle.
+ * Lobby — pre-match room. Retro-arcade redesign:
+ * room code as coin-op letter cells, guard/spoilers team panels with
+ * team-color borders, VS pixel divider, player chips, ready/start CTA.
+ * ALL handlers/flows preserved exactly from the previous version.
  */
 import { useState } from "react";
 import { useGameStore, TEAM_COLOR } from "@/game/state/store";
@@ -10,6 +11,9 @@ import type { LobbyHandle } from "@/game/net/lobby";
 import { GAME_MODES, TEAMS } from "@/game/core/types";
 import type { GameMode, TeamId } from "@/game/core/types";
 import { MAP_LIST } from "@/game/core/maps";
+import { PixelPanel } from "@/components/arcade/PixelPanel";
+import { ArcadeButton } from "@/components/arcade/ArcadeButton";
+import { CrownIcon, PadlockIcon } from "@/components/arcade/PixelIcons";
 
 export function Lobby({ handle, onLeave }: { handle: LobbyHandle | null; onLeave: () => void }) {
   const lobby = useGameStore((s) => s.lobby);
@@ -29,15 +33,20 @@ export function Lobby({ handle, onLeave }: { handle: LobbyHandle | null; onLeave
   if (!lobby) {
     return (
       <main style={L.root}>
-        <div style={L.loadingCard} className="panel">
-          <div style={L.loadingSpinner} aria-hidden="true" />
-          <p style={{ color: "var(--ink-dim)", fontSize: "0.95rem" }}>
-            Joining room <span style={{ color: "var(--leaf)", fontFamily: "var(--font-display)", letterSpacing: "0.12em" }}>{roomCode}</span>…
+        <PixelPanel style={L.loadingCard} bodyStyle={L.loadingBody}>
+          <div
+            style={L.spinner}
+            aria-hidden="true"
+            role="status"
+          />
+          <p style={L.loadingText}>
+            JOINING ROOM{" "}
+            <span style={L.loadingCode}>{roomCode}</span>
           </p>
-          <button className="btn btn--ghost" onClick={onLeave}>
-            Cancel
-          </button>
-        </div>
+          <ArcadeButton variant="ghost" onClick={onLeave}>
+            CANCEL
+          </ArcadeButton>
+        </PixelPanel>
       </main>
     );
   }
@@ -47,112 +56,124 @@ export function Lobby({ handle, onLeave }: { handle: LobbyHandle | null; onLeave
 
   return (
     <main style={L.root}>
-      {/* Room code card */}
-      <div style={L.codeCard} className="panel">
-        <div style={L.codeLabel}>Share this code with friends</div>
+      {/* Room code panel */}
+      <PixelPanel style={L.codePanel} bodyStyle={L.codeBody}>
+        <div style={L.codeLabel}>SHARE THIS CODE</div>
         <button
-          style={L.codeBtn}
+          style={L.codeCells}
           onClick={copyCode}
           title="Click to copy room code"
           aria-label={`Room code ${roomCode}. Click to copy.`}
         >
-          <span style={L.codeText}>{roomCode || "----"}</span>
-          <span style={{ ...L.codeCopyHint, ...(copied ? L.codeCopied : {}) }} aria-live="polite">
-            {copied ? "Copied!" : "Copy"}
-          </span>
+          {(roomCode || "------").split("").map((ch, i) => (
+            <span key={i} style={L.codeCell}>{ch}</span>
+          ))}
         </button>
-      </div>
+        <span
+          style={{ ...L.copiedStamp, ...(copied ? L.copiedStampVisible : {}) }}
+          aria-live="polite"
+        >
+          {copied ? "COPIED!" : "CLICK TO COPY"}
+        </span>
+      </PixelPanel>
 
       {/* Team columns */}
       <div style={L.teams}>
         {(["guard", "spoilers"] as TeamId[]).map((team) => {
           const color = TEAM_COLOR[team];
           const isGuard = team === "guard";
-          return (
-            <div
-              key={team}
-              className="panel"
-              style={{
-                ...L.teamCol,
-                borderColor: `${color}44`,
-                boxShadow: `0 0 0 1px ${color}22, var(--shadow-2)`,
-              }}
-            >
-              {/* Team header */}
-              <div style={{ ...L.teamHeader, borderBottom: `1px solid ${color}33` }}>
-                <div>
-                  <div style={{ ...L.teamTitle, color }}>
-                    {TEAMS[team].name}
-                  </div>
-                  <div style={L.teamTagline}>{TEAMS[team].tagline}</div>
-                </div>
-                <div style={{
-                  ...L.teamBadge,
-                  background: `${color}1a`,
-                  border: `1px solid ${color}44`,
-                  color,
-                }}>
-                  {isGuard ? "DEF" : "ATK"}
-                </div>
-              </div>
+          const tone = isGuard ? "guard" : "spoilers";
+          const players = teamPlayers(team);
 
-              {/* Player list */}
+          return (
+            <PixelPanel
+              key={team}
+              tone={tone}
+              header={
+                <div style={L.teamHeaderContent}>
+                  <span style={{ color: color }}>{TEAMS[team].name.toUpperCase()}</span>
+                  <span style={{ ...L.teamBadge, background: color, color: "#000" }}>
+                    {isGuard ? "DEF" : "ATK"}
+                  </span>
+                </div>
+              }
+              style={L.teamPanel}
+              bodyStyle={L.teamBody}
+            >
+              <div style={L.tagline}>{TEAMS[team].tagline}</div>
+
               <div style={L.playerList}>
-                {teamPlayers(team).map((p) => (
+                {players.map((p) => (
                   <div
                     key={p.id}
                     style={{
                       ...L.playerChip,
-                      ...(p.id === myId ? { ...L.mePlayer, borderColor: color + "66" } : {}),
+                      ...(p.id === myId
+                        ? { borderColor: color, background: "rgba(0,0,0,0.4)" }
+                        : {}),
                     }}
                   >
-                    <span style={L.playerName}>
+                    <span style={L.playerNameRow}>
                       {p.isHost ? (
-                        <span style={{ ...L.crownIcon, color: "var(--gold)" }} title="Host" aria-label="Host">
-                          &#9812;
-                        </span>
+                        <CrownIcon size={12} color="var(--arc-gold)" />
                       ) : (
-                        <span style={{ ...L.tomatoIcon, color }} aria-hidden="true">●</span>
+                        <span
+                          style={{ display: "inline-block", width: 8, height: 8, background: color }}
+                          aria-hidden="true"
+                        />
                       )}
-                      {p.name}
+                      <span style={L.playerName}>{p.name}</span>
                       {p.id === myId && <span style={L.youTag}>YOU</span>}
                     </span>
-                    {p.ready && !p.isHost && (
-                      <span style={L.readyBadge} aria-label="Ready">
-                        READY
-                      </span>
-                    )}
-                    {p.isHost && (
-                      <span style={L.hostBadge} aria-label="Host">HOST</span>
-                    )}
+                    <span style={L.playerBadges}>
+                      {p.ready && !p.isHost && (
+                        <span
+                          style={L.readyStamp}
+                          aria-label="Ready"
+                        >
+                          READY
+                        </span>
+                      )}
+                      {p.isHost && (
+                        <span style={L.hostStamp} aria-label="Host">HOST</span>
+                      )}
+                    </span>
                   </div>
                 ))}
-                {/* Empty slots */}
-                {teamPlayers(team).length === 0 && (
+                {players.length === 0 && (
                   <div style={L.emptySlot}>
-                    <span style={L.emptyDash}>—</span>
-                    <span>Waiting for players</span>
+                    — WAITING —
                   </div>
                 )}
               </div>
 
-              {/* Switch team */}
               {me?.team !== team && (
-                <button
-                  className="btn btn--ghost"
-                  style={{ ...L.joinTeam, borderColor: `${color}44` }}
+                <ArcadeButton
+                  variant={isGuard ? "confirm" : "primary"}
+                  style={L.joinBtn}
                   onClick={() => handle?.setMyTeam(team)}
                 >
-                  Join {TEAMS[team].short}
-                </button>
+                  JOIN {TEAMS[team].short.toUpperCase()}
+                </ArcadeButton>
               )}
-            </div>
+            </PixelPanel>
           );
         })}
       </div>
 
+      {/* VS divider (visible between teams) */}
+      <div style={L.vsDivider} aria-hidden="true">
+        <div style={L.vsDividerLine} />
+        <span style={L.vsText}>VS</span>
+        <div style={L.vsDividerLine} />
+      </div>
+
       {/* Config row */}
-      <div className="panel" style={L.configRow}>
+      <PixelPanel
+        header="MATCH CONFIG"
+        style={L.configPanel}
+        bodyStyle={L.configBody}
+      >
         <ConfigChips
           isHost={isHost}
           mode={lobby.config.mode}
@@ -162,33 +183,31 @@ export function Lobby({ handle, onLeave }: { handle: LobbyHandle | null; onLeave
           onMap={(id) => handle?.setConfig({ mapId: id })}
           onBots={(n) => handle?.setConfig({ botCount: n })}
         />
-      </div>
+      </PixelPanel>
 
       {/* Actions row */}
       <div style={L.actions}>
-        <button className="btn btn--ghost" style={L.leaveBtn} onClick={onLeave}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M8.5 11.5 4 7l4.5-4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Leave
-        </button>
+        <ArcadeButton variant="ghost" onClick={onLeave} aria-label="Leave lobby">
+          ◀ LEAVE
+        </ArcadeButton>
+
         {isHost ? (
-          <button
-            className="btn"
+          <ArcadeButton
+            variant="primary"
+            size="lg"
             style={L.startBtn}
             onClick={() => handle?.start()}
           >
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor" aria-hidden="true">
-              <path d="M3.5 2v11l9-5.5-9-5.5Z"/>
-            </svg>
-            Start Match
+            <span style={L.blinkArrow} aria-hidden="true">▶</span>
+            START MATCH
             <span style={L.startMeta}>
-              {lobby.players.length} {lobby.players.length === 1 ? "player" : "players"} + {lobby.config.botCount} bots
+              {lobby.players.length}P + {lobby.config.botCount} BOTS
             </span>
-          </button>
+          </ArcadeButton>
         ) : (
-          <button
-            className={ready ? "btn" : "btn btn--ghost"}
+          <ArcadeButton
+            variant={ready ? "confirm" : "ghost"}
+            size="lg"
             style={L.readyBtn}
             onClick={() => {
               const r = !ready;
@@ -199,20 +218,19 @@ export function Lobby({ handle, onLeave }: { handle: LobbyHandle | null; onLeave
           >
             {ready ? (
               <>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path d="M2.5 7 5.5 10l6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                Ready — waiting for host
+                <span aria-hidden="true">✔</span> READY — WAITING FOR HOST
               </>
             ) : (
-              "Mark Ready"
+              "MARK READY"
             )}
-          </button>
+          </ArcadeButton>
         )}
       </div>
     </main>
   );
 }
+
+/* ---------- Sub-components ---------- */
 
 function ConfigChips({
   isHost,
@@ -232,37 +250,35 @@ function ConfigChips({
   onBots: (n: number) => void;
 }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", alignItems: "flex-start" }}>
-      <Group label="Mode">
+    <div style={L.configInner}>
+      <ConfigGroup label="MODE">
         {(Object.keys(GAME_MODES) as GameMode[]).map((m) => (
-          <button
+          <ConfigTile
             key={m}
-            disabled={!isHost}
-            onClick={() => onMode(m)}
-            style={{ ...L.chip, ...(mode === m ? L.chipOn : {}), ...(isHost ? {} : L.chipLocked) }}
+            label={GAME_MODES[m].name}
+            active={mode === m}
+            locked={!isHost}
+            onClick={() => isHost && onMode(m)}
             aria-pressed={mode === m}
-          >
-            {mode === m && <span style={L.chipActiveDot} aria-hidden="true" />}
-            {GAME_MODES[m].name}
-          </button>
+          />
         ))}
-      </Group>
-      <Group label="Map">
+      </ConfigGroup>
+
+      <ConfigGroup label="MAP">
         {MAP_LIST.map((m) => (
-          <button
+          <ConfigTile
             key={m.id}
-            disabled={!isHost}
-            onClick={() => onMap(m.id)}
-            style={{ ...L.chip, ...(mapId === m.id ? L.chipOn : {}), ...(isHost ? {} : L.chipLocked) }}
+            label={m.name}
+            active={mapId === m.id}
+            locked={!isHost}
+            onClick={() => isHost && onMap(m.id)}
             aria-pressed={mapId === m.id}
-          >
-            {mapId === m.id && <span style={L.chipActiveDot} aria-hidden="true" />}
-            {m.name}
-          </button>
+          />
         ))}
-      </Group>
-      <Group label={`Bots: ${botCount}`}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+      </ConfigGroup>
+
+      <ConfigGroup label={`BOTS: ${botCount}`}>
+        <div style={L.botSliderWrap}>
           <input
             type="range"
             min={0}
@@ -270,282 +286,342 @@ function ConfigChips({
             value={botCount}
             disabled={!isHost}
             onChange={(e) => onBots(+e.target.value)}
-            style={{ accentColor: "var(--leaf)", width: 120 }}
+            style={{ accentColor: "var(--arc-green)", width: 100 }}
             aria-label={`Bot count: ${botCount}`}
           />
-          <span style={{ color: "var(--leaf)", fontFamily: "var(--font-display)", fontSize: "0.85rem", fontWeight: 600, minWidth: "1.5ch" }}>
-            {botCount}
-          </span>
+          <span style={L.botVal}>{botCount}</span>
+          {!isHost && <PadlockIcon size={12} />}
         </div>
-      </Group>
+      </ConfigGroup>
     </div>
   );
 }
 
-function Group({ label, children }: { label: string; children: React.ReactNode }) {
+function ConfigGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <span style={L.groupLabel}>{label}</span>
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>{children}</div>
+    <div style={L.configGroup}>
+      <span style={L.configGroupLabel}>{label}</span>
+      <div style={L.configGroupItems}>{children}</div>
     </div>
   );
 }
+
+function ConfigTile({
+  label,
+  active,
+  locked,
+  onClick,
+  ...rest
+}: {
+  label: string;
+  active: boolean;
+  locked: boolean;
+  onClick: () => void;
+  [k: string]: unknown;
+}) {
+  return (
+    <button
+      style={{
+        ...L.configTile,
+        ...(active ? L.configTileOn : {}),
+        ...(locked ? L.configTileLocked : {}),
+      }}
+      onClick={onClick}
+      disabled={locked}
+      {...rest}
+    >
+      {locked && !active && (
+        <PadlockIcon size={8} color="var(--arc-ink-faint)" />
+      )}
+      {active && <span style={{ fontSize: "6px" }} aria-hidden="true">▮</span>}
+      {label}
+    </button>
+  );
+}
+
+/* ---------- Styles ---------- */
 
 const L: Record<string, React.CSSProperties> = {
   root: {
     minHeight: "100vh",
     display: "flex",
     flexDirection: "column",
-    gap: "1.1rem",
+    gap: "1rem",
     alignItems: "center",
     justifyContent: "center",
     padding: "2rem 1rem",
     maxWidth: 980,
     margin: "0 auto",
+    background: "var(--arc-bg0)",
   },
-  /* Loading state */
+  /* Loading */
   loadingCard: {
+    width: "min(420px, 92vw)",
+  },
+  loadingBody: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "1.2rem",
-    padding: "2.5rem 3rem",
+    gap: "1.25rem",
+    padding: "2.5rem 2.5rem",
   },
-  loadingSpinner: {
-    width: 32,
-    height: 32,
-    borderRadius: "50%",
-    border: "3px solid var(--bg-3)",
-    borderTopColor: "var(--leaf)",
-    animation: "spin 0.8s linear infinite",
+  spinner: {
+    width: 28,
+    height: 28,
+    border: "3px solid var(--arc-panel-hi)",
+    borderTopColor: "var(--arc-green)",
+    animation: "arc-spin-steps 0.9s steps(8) infinite",
   },
-  /* Room code card */
-  codeCard: {
-    padding: "1.1rem 2.5rem",
-    textAlign: "center",
+  loadingText: {
+    fontFamily: "var(--font-display)",
+    fontSize: "10px",
+    color: "var(--arc-ink-dim)",
+    letterSpacing: "0.1em",
+  },
+  loadingCode: {
+    color: "var(--arc-green)",
+    letterSpacing: "0.25em",
+  },
+  /* Room code */
+  codePanel: {
+    width: "100%",
+    maxWidth: 480,
+  },
+  codeBody: {
+    padding: "1rem 1.5rem",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     gap: "0.5rem",
-    width: "100%",
-    maxWidth: 440,
   },
   codeLabel: {
-    fontSize: "0.66rem",
-    letterSpacing: "0.16em",
-    color: "var(--ink-faint)",
-    textTransform: "uppercase",
     fontFamily: "var(--font-display)",
+    fontSize: "8px",
+    letterSpacing: "0.18em",
+    color: "var(--arc-ink-faint)",
+    textTransform: "uppercase" as const,
   },
-  codeBtn: {
+  codeCells: {
     display: "flex",
-    alignItems: "center",
-    gap: "1rem",
+    gap: "6px",
     background: "none",
     border: "none",
     cursor: "pointer",
-    padding: "0.3rem 0.6rem",
-    borderRadius: "var(--r-sm)",
-    transition: "background 0.15s",
+    padding: "0.25rem",
   },
-  codeText: {
+  codeCell: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 40,
+    height: 48,
+    background: "var(--arc-black)",
+    border: "var(--arc-border-w) solid var(--arc-green)",
     fontFamily: "var(--font-display)",
-    fontSize: "2.8rem",
-    letterSpacing: "0.35em",
-    color: "var(--leaf)",
-    textShadow: "var(--glow-leaf)",
-    fontWeight: 700,
-    lineHeight: 1,
+    fontSize: "24px",
+    color: "var(--arc-green)",
+    boxShadow: "var(--arc-shadow)",
   },
-  codeCopyHint: {
-    fontSize: "0.72rem",
-    letterSpacing: "0.08em",
-    color: "var(--ink-dim)",
+  copiedStamp: {
     fontFamily: "var(--font-display)",
-    padding: "0.3em 0.7em",
-    borderRadius: 6,
-    background: "var(--bg-3)",
-    border: "1px solid var(--panel-edge)",
-    transition: "background 0.15s, color 0.15s",
-    fontWeight: 600,
+    fontSize: "8px",
+    letterSpacing: "0.12em",
+    color: "var(--arc-ink-faint)",
+    transition: "none",
   },
-  codeCopied: {
-    background: "rgba(124,252,88,0.2)",
-    color: "var(--leaf)",
-    borderColor: "rgba(124,252,88,0.4)",
+  copiedStampVisible: {
+    color: "var(--arc-green)",
+    animation: "arc-pop 0.18s steps(3) both",
   },
-  /* Team columns */
+  /* Teams */
   teams: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
     gap: "1rem",
     width: "100%",
   },
-  teamCol: {
-    padding: "1.1rem",
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.7rem",
-    borderWidth: 1,
-    borderStyle: "solid",
+  teamPanel: {
+    width: "100%",
   },
-  teamHeader: {
+  teamHeaderContent: {
     display: "flex",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingBottom: "0.7rem",
-    marginBottom: "0.1rem",
-  },
-  teamTitle: {
+    alignItems: "center",
     fontFamily: "var(--font-display)",
-    fontSize: "1.1rem",
-    fontWeight: 700,
-    letterSpacing: "0.03em",
-  },
-  teamTagline: {
-    fontSize: "0.73rem",
-    color: "var(--ink-faint)",
-    fontStyle: "italic",
-    marginTop: "0.2rem",
-    lineHeight: 1.35,
+    fontSize: "10px",
+    letterSpacing: "0.08em",
+    width: "100%",
   },
   teamBadge: {
-    fontSize: "0.58rem",
     fontFamily: "var(--font-display)",
-    letterSpacing: "0.14em",
+    fontSize: "8px",
+    letterSpacing: "0.1em",
+    padding: "2px 6px",
     fontWeight: 700,
-    padding: "0.2em 0.6em",
-    borderRadius: 100,
-    flexShrink: 0,
+  },
+  teamBody: {
+    padding: "0.75rem",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.6rem",
+  },
+  tagline: {
+    fontFamily: "var(--font-body)",
+    fontSize: "16px",
+    color: "var(--arc-ink-faint)",
+    fontStyle: "italic",
   },
   playerList: {
     display: "flex",
     flexDirection: "column",
-    gap: 5,
-    minHeight: 100,
+    gap: "4px",
+    minHeight: 80,
   },
   playerChip: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "0.45em 0.75em",
-    background: "var(--bg-2)",
-    borderRadius: "var(--r-sm)",
-    border: "1px solid transparent",
+    padding: "0.4em 0.6em",
+    background: "var(--arc-panel-hi)",
+    border: "var(--arc-border-w) solid var(--arc-black)",
     fontFamily: "var(--font-body)",
-    fontSize: "0.9rem",
+    fontSize: "18px",
   },
-  mePlayer: {
-    background: "rgba(124,252,88,0.05)",
-    borderWidth: 1,
-    borderStyle: "solid",
+  playerNameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.4em",
   },
   playerName: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.5em",
-    fontWeight: 500,
-  },
-  crownIcon: {
-    fontSize: "0.9rem",
-    lineHeight: 1,
-  },
-  tomatoIcon: {
-    fontSize: "0.55rem",
-    lineHeight: 1,
+    color: "var(--arc-white)",
   },
   youTag: {
-    fontSize: "0.55rem",
     fontFamily: "var(--font-display)",
-    letterSpacing: "0.1em",
-    color: "var(--ink-faint)",
-    background: "var(--bg-3)",
-    padding: "0.15em 0.5em",
-    borderRadius: 4,
-    fontWeight: 700,
+    fontSize: "7px",
+    color: "var(--arc-black)",
+    background: "var(--arc-green)",
+    padding: "1px 4px",
+    letterSpacing: "0.08em",
   },
-  readyBadge: {
-    fontSize: "0.58rem",
-    color: "var(--leaf)",
-    letterSpacing: "0.1em",
-    fontFamily: "var(--font-display)",
-    fontWeight: 700,
-    background: "rgba(124,252,88,0.12)",
-    border: "1px solid rgba(124,252,88,0.3)",
-    padding: "0.2em 0.55em",
-    borderRadius: 5,
+  playerBadges: {
+    display: "flex",
+    gap: "4px",
+    alignItems: "center",
   },
-  hostBadge: {
-    fontSize: "0.58rem",
-    color: "var(--gold)",
-    letterSpacing: "0.1em",
+  readyStamp: {
     fontFamily: "var(--font-display)",
-    fontWeight: 700,
-    background: "rgba(255,210,63,0.12)",
-    border: "1px solid rgba(255,210,63,0.3)",
-    padding: "0.2em 0.55em",
-    borderRadius: 5,
+    fontSize: "7px",
+    color: "var(--arc-black)",
+    background: "var(--arc-green)",
+    padding: "1px 5px",
+    letterSpacing: "0.08em",
+    animation: "arc-blink 0.9s steps(1) infinite",
+  },
+  hostStamp: {
+    fontFamily: "var(--font-display)",
+    fontSize: "7px",
+    color: "var(--arc-black)",
+    background: "var(--arc-gold)",
+    padding: "1px 5px",
+    letterSpacing: "0.08em",
   },
   emptySlot: {
-    color: "var(--ink-faint)",
-    fontSize: "0.8rem",
-    fontStyle: "italic",
-    padding: "0.5em 0.4em",
+    fontFamily: "var(--font-display)",
+    fontSize: "8px",
+    color: "var(--arc-ink-faint)",
+    textAlign: "center" as const,
+    padding: "1rem 0",
+    letterSpacing: "0.1em",
+  },
+  joinBtn: {
+    width: "100%",
+    marginTop: "0.25rem",
+    justifyContent: "center",
+  },
+  /* VS divider */
+  vsDivider: {
     display: "flex",
     alignItems: "center",
-    gap: "0.5em",
-  },
-  emptyDash: {
-    color: "var(--bg-3)",
-  },
-  joinTeam: {
-    fontSize: "0.78rem",
-    padding: "0.45em 0.9em",
+    gap: "0.75rem",
     width: "100%",
-    marginTop: "0.2rem",
+    maxWidth: 480,
   },
-  /* Config row */
-  configRow: {
-    padding: "1rem 1.2rem",
-    width: "100%",
+  vsDividerLine: {
+    flex: 1,
+    height: "2px",
+    background: "var(--arc-panel-hi)",
   },
-  groupLabel: {
-    fontSize: "0.65rem",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-    color: "var(--ink-dim)",
+  vsText: {
     fontFamily: "var(--font-display)",
+    fontSize: "24px",
+    color: "var(--arc-ink-dim)",
+    letterSpacing: "0.15em",
   },
-  chip: {
+  /* Config */
+  configPanel: {
+    width: "100%",
+  },
+  configBody: {
+    padding: "0.75rem 1rem",
+  },
+  configInner: {
+    display: "flex",
+    flexWrap: "wrap" as const,
+    gap: "1.25rem",
+    alignItems: "flex-start",
+  },
+  configGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  configGroupLabel: {
+    fontFamily: "var(--font-display)",
+    fontSize: "8px",
+    letterSpacing: "0.12em",
+    color: "var(--arc-green)",
+    textTransform: "uppercase" as const,
+  },
+  configGroupItems: {
+    display: "flex",
+    gap: "5px",
+    flexWrap: "wrap" as const,
+    alignItems: "center",
+  },
+  configTile: {
     display: "inline-flex",
     alignItems: "center",
-    gap: "0.35em",
-    padding: "0.38em 0.8em",
-    borderRadius: 7,
-    background: "var(--bg-2)",
-    border: "1px solid var(--panel-edge)",
-    color: "var(--ink-dim)",
+    gap: "0.3em",
+    padding: "0.4em 0.7em",
     fontFamily: "var(--font-display)",
-    fontSize: "0.8rem",
-    transition: "all 0.13s var(--ease-out)",
+    fontSize: "8px",
+    letterSpacing: "0.06em",
+    textTransform: "uppercase" as const,
+    background: "var(--arc-panel-hi)",
+    color: "var(--arc-ink-dim)",
+    border: "var(--arc-border-w) solid var(--arc-black)",
+    boxShadow: "3px 3px 0 var(--arc-black)",
+    cursor: "pointer",
   },
-  chipOn: {
-    background: "rgba(124,252,88,0.13)",
-    color: "var(--leaf)",
-    borderColor: "rgba(124,252,88,0.4)",
-    fontWeight: 600,
+  configTileOn: {
+    background: "var(--arc-green)",
+    color: "var(--arc-black)",
+    boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.2)",
   },
-  chipLocked: {
-    opacity: 0.55,
+  configTileLocked: {
+    opacity: 0.5,
     cursor: "default",
   },
-  chipActiveDot: {
-    display: "block",
-    width: 5,
-    height: 5,
-    borderRadius: "50%",
-    background: "var(--leaf)",
-    flexShrink: 0,
+  botSliderWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+  },
+  botVal: {
+    fontFamily: "var(--font-display)",
+    fontSize: "10px",
+    color: "var(--arc-green)",
+    minWidth: "1.5ch",
   },
   /* Actions */
   actions: {
@@ -554,26 +630,24 @@ const L: Record<string, React.CSSProperties> = {
     width: "100%",
     alignItems: "stretch",
   },
-  leaveBtn: {
-    gap: "0.4em",
-    flexShrink: 0,
-  },
   startBtn: {
     flex: 1,
-    gap: "0.55em",
-    fontSize: "1rem",
-    position: "relative",
-    flexWrap: "wrap" as const,
+    justifyContent: "center",
+    gap: "0.6em",
+  },
+  blinkArrow: {
+    animation: "arc-blink 0.9s steps(1) infinite",
+    display: "inline-block",
   },
   startMeta: {
-    fontSize: "0.72rem",
+    fontFamily: "var(--font-display)",
+    fontSize: "8px",
     opacity: 0.7,
-    fontWeight: 400,
-    letterSpacing: "0.03em",
+    letterSpacing: "0.06em",
   },
   readyBtn: {
     flex: 1,
+    justifyContent: "center",
     gap: "0.5em",
-    fontSize: "0.95rem",
   },
 };

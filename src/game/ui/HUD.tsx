@@ -1,8 +1,23 @@
 "use client";
 /**
- * HUD — the full 2D overlay for a live match: crosshair + hitmarker, vitals,
- * ammo, economy, round timer + scores, kill feed, objective status, and the
- * buy/scoreboard/pause overlays. Reads the throttled snapshot from the store.
+ * HUD — retro-arcade pixel UI overlay for a live match.
+ *
+ * All logic/data-flow from the original is preserved:
+ *   - zustand ~15Hz snapshot, hud-fx FeedbackLayer bus, settings sync,
+ *     spectate, flash blind, scope, vignettes.
+ *
+ * What changed (Part 7 redesign):
+ *   - Deleted injected KEYFRAMES <style> string — keyframes are in globals.css
+ *   - All UI states use arc-* tokens, PixelPanel, ArcadeButton, TickerNumber,
+ *     SegmentBar, PixelIcons
+ *   - Screen-shake on kill via hudWrapRef classList toggle (zero React state)
+ *   - Hitmarker → pixel ✕ (4 square ticks), arc-stamp
+ *   - Damage numbers: arc-rise steps(6), Press Start 2P 12px
+ *   - Round banners: letterbox arc-slam-down/up + arc-stamp center
+ *   - Death screen: "BLENDED" arc-stamp + SkullIcon
+ *   - Scope: pixel reticle + 4px chunky green ring
+ *   - Vignettes: arc-vig / arc-pulse keyframes
+ *   - HP < 30 → arc-blink red pulse on HeartIcon
  */
 import { useEffect, useRef, useState } from "react";
 import type { GameEngine } from "@/game/net/engine";
@@ -14,6 +29,21 @@ import { onHudDamage } from "@/game/render/hud-fx";
 import { BuyMenu } from "./BuyMenu";
 import { Scoreboard } from "./Scoreboard";
 import { Minimap } from "./Minimap";
+import { PixelPanel } from "@/components/arcade/PixelPanel";
+import { ArcadeButton } from "@/components/arcade/ArcadeButton";
+import { TickerNumber } from "@/components/arcade/TickerNumber";
+import { SegmentBar } from "@/components/arcade/SegmentBar";
+import {
+  HeartIcon,
+  SkullIcon,
+  ShieldIcon,
+  BombIcon,
+  StarIcon,
+  CrossIcon,
+  DollarIcon,
+  PadlockIcon,
+  TomatoIcon,
+} from "@/components/arcade/PixelIcons";
 
 function lockPointer() {
   if (typeof document === "undefined") return;
@@ -29,6 +59,9 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
   const locked = useGameStore((s) => s.pointerLocked);
   const scoped = useGameStore((s) => s.scoped);
   const settings = useGameStore((s) => s.settings);
+
+  // Wrapper ref for classList-based screen-shake (zero React state)
+  const hudWrapRef = useRef<HTMLDivElement>(null);
 
   const me = myPlayer(game, myId);
 
@@ -47,32 +80,86 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
   const cur = me?.inventory.find((i) => i.id === me.currentWeapon);
   const w = me ? WEAPONS[me.currentWeapon] : null;
   const dm = game.config.mode === "deathmatch";
+  const bombCritical = bomb.planted && bombLeft < 10;
+  const hpLow = me?.alive && me.hp > 0 && me.hp < 30;
 
   return (
-    <div style={H.root}>
+    <div
+      ref={hudWrapRef}
+      style={{
+        position: "fixed",
+        inset: 0,
+        pointerEvents: "none",
+        fontFamily: "var(--font-display)",
+        userSelect: "none",
+        color: "var(--arc-white)",
+      }}
+    >
       <Minimap game={game} myId={myId} />
       {settings.showFps && <FpsCounter />}
-      {/* ---- Top center: scores + timer ---- */}
+
+      {/* ---- Top center: score plates + timer ---- */}
       <div style={H.topCenter}>
-        <TeamScore team="guard" score={game.scores.guard} flip={false} />
-        <div style={H.timerBox}>
-          <div style={H.timer}>{bomb.planted ? `💣 ${bombLeft.toFixed(0)}` : fmtTime(phaseLeft)}</div>
-          <div style={H.phaseLabel}>
-            {game.phase === "buy" ? "BUY" : game.phase === "roundEnd" ? "ROUND OVER" : game.phase === "matchEnd" ? "MATCH OVER" : dm ? "DEATHMATCH" : `ROUND ${game.roundNumber}`}
-          </div>
-        </div>
-        <TeamScore team="spoilers" score={game.scores.spoilers} flip />
+        <TeamScorePlate team="guard" score={game.scores.guard} />
+        <TimerPlate
+          phaseLeft={phaseLeft}
+          bombLeft={bombLeft}
+          bombPlanted={bomb.planted}
+          bombCritical={bombCritical}
+          phase={game.phase}
+          roundNumber={game.roundNumber}
+          dm={dm}
+        />
+        <TeamScorePlate team="spoilers" score={game.scores.spoilers} />
       </div>
 
-      {/* ---- Kill feed ---- */}
-      <div style={H.killFeed}>
-        {game.killFeed.slice(-5).map((k) => (
-          <div key={k.id} style={H.killRow}>
-            <span style={{ color: k.killerTeam ? TEAM_COLOR[k.killerTeam] : "var(--ink-dim)" }}>{k.killerName}</span>
-            <span style={H.killWeapon}>{k.headshot ? " ✷ " : " › "}{WEAPONS[k.weapon]?.name ?? ""}{" › "}</span>
-            <span style={{ color: TEAM_COLOR[k.victimTeam] }}>{k.victimName}</span>
-          </div>
-        ))}
+      {/* ---- Phase strip below timer ---- */}
+      <div style={H.phaseStrip}>
+        {game.phase === "buy"
+          ? "BUY PHASE"
+          : game.phase === "roundEnd"
+          ? "ROUND OVER"
+          : game.phase === "matchEnd"
+          ? "MATCH OVER"
+          : dm
+          ? "DEATHMATCH"
+          : `ROUND ${game.roundNumber}`}
+      </div>
+
+      {/* ---- Kill feed top-right ---- */}
+      <div style={H.killFeed} role="log" aria-label="Kill feed" aria-live="polite">
+        {game.killFeed.slice(-5).map((k) => {
+          const isLocal = k.killer === myId || k.victim === myId;
+          const killerColor = k.killerTeam ? TEAM_COLOR[k.killerTeam] : "var(--arc-ink-dim)";
+          const victimColor = TEAM_COLOR[k.victimTeam];
+          return (
+            <div
+              key={k.id}
+              style={{
+                ...H.killRow,
+                borderLeft: isLocal ? `2px solid ${killerColor}` : "2px solid transparent",
+                animation: "arc-kf-in 0.14s steps(2) both",
+              }}
+            >
+              {/* 1-frame arc-flash entry */}
+              <span
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  animation: "arc-flash 0.14s steps(1) both",
+                  pointerEvents: "none",
+                }}
+              />
+              <span style={{ color: killerColor, position: "relative" }}>{k.killerName}</span>
+              <span style={H.killWeapon}>
+                {" "}[{WEAPONS[k.weapon]?.name ?? "?"}]{" "}
+              </span>
+              {k.headshot && <StarIcon size={10} style={{ verticalAlign: "middle", marginRight: 2 }} />}
+              <CrossIcon size={10} style={{ verticalAlign: "middle", marginRight: 2 }} />
+              <span style={{ color: victimColor, position: "relative" }}>{k.victimName}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* ---- Crosshair (hidden while scoped) ---- */}
@@ -83,7 +170,7 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
       )}
 
       {/* ---- Hit/kill markers + floating damage numbers ---- */}
-      <FeedbackLayer />
+      <FeedbackLayer hudWrapRef={hudWrapRef} />
 
       {/* ---- Damage + low-HP vignette ---- */}
       {me && <DamageVignette hp={me.hp} alive={me.alive} />}
@@ -108,54 +195,189 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
       {/* ---- Objective / action progress ---- */}
       {!dm && (me?.actionProgress ?? 0) > 0 && me!.actionProgress < 1 && (
         <div style={H.actionBar}>
-          <div style={H.actionLabel}>{me!.team === "spoilers" ? "PLANTING…" : "DEFUSING…"}</div>
-          <div style={H.progressOuter}>
-            <div style={{ ...H.progressInner, width: `${me!.actionProgress * 100}%` }} />
-          </div>
+          <PixelPanel style={{ padding: "8px 16px", textAlign: "center" }}>
+            <div style={H.actionLabel}>
+              {me!.team === "spoilers" ? "PLANTING…" : "DEFUSING…"}
+            </div>
+            <SegmentBar
+              value={me!.actionProgress}
+              max={1}
+              segments={10}
+              color="var(--arc-gold)"
+              height={10}
+              style={{ width: 220, marginTop: 6 }}
+            />
+          </PixelPanel>
         </div>
       )}
+
       {me?.hasBomb && !bomb.planted && (
-        <div style={H.bombHint}>You have the Salsa Bomb — reach site A or B and hold E</div>
+        <div style={H.bombHint}>
+          <BombIcon size={12} style={{ marginRight: 6 }} />
+          <span>Salsa Bomb — reach site A or B and hold E</span>
+        </div>
       )}
 
       {/* ---- Bottom-left: vitals ---- */}
       {me && (
         <div style={H.bottomLeft}>
-          <div style={H.hpRow}>
-            <span style={{ fontSize: "1.6rem" }}>{me.alive ? "🍅" : "💀"}</span>
-            <div style={H.hpNum}>{Math.max(0, Math.ceil(me.hp))}</div>
-            <div style={H.vitalBars}>
-              <Bar value={me.hp} max={100} color="var(--tomato-bright)" />
-              <Bar value={me.armor} max={100} color="var(--guard)" />
+          <PixelPanel style={{ padding: "8px 12px" }}>
+            {/* HP row */}
+            <div style={H.hpRow}>
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  animation: hpLow ? "arc-blink 0.9s steps(1) infinite" : undefined,
+                }}
+                aria-label={me.alive ? "Alive" : "Dead"}
+              >
+                {me.alive
+                  ? <HeartIcon size={20} color={hpLow ? "var(--arc-red)" : "var(--arc-green)"} />
+                  : <SkullIcon size={20} />}
+              </span>
+              <TickerNumber
+                value={Math.max(0, Math.ceil(me.hp))}
+                popOn="decrease"
+                durationMs={120}
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 32,
+                  lineHeight: 1,
+                  minWidth: 56,
+                  color: hpLow ? "var(--arc-red)" : "var(--arc-white)",
+                }}
+              />
+              <div style={H.vitalBars}>
+                <SegmentBar
+                  value={me.hp}
+                  max={100}
+                  segments={20}
+                  color={hpLow ? "var(--arc-red)" : "var(--arc-green)"}
+                  chase
+                  height={10}
+                  style={{ width: 140 }}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+                  <ShieldIcon size={10} color="var(--arc-cyan)" />
+                  <SegmentBar
+                    value={me.armor}
+                    max={100}
+                    segments={10}
+                    color="var(--arc-cyan)"
+                    height={6}
+                    style={{ width: 120 }}
+                  />
+                </div>
+              </div>
             </div>
-            {me.helmet && <span title="Leaf Helmet">🥬</span>}
-            {me.defuseKit && <span title="Defuse Kit">✂️</span>}
-          </div>
+            {/* Equipment icons */}
+            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+              {me.helmet && (
+                <span
+                  title="Leaf Helmet"
+                  aria-label="Leaf Helmet"
+                  style={H.equipIcon}
+                >
+                  <TomatoIcon size={12} color="var(--arc-green)" />
+                  <span style={H.equipLabel}>HELM</span>
+                </span>
+              )}
+              {me.defuseKit && (
+                <span
+                  title="Defuse Kit"
+                  aria-label="Defuse Kit"
+                  style={H.equipIcon}
+                >
+                  <PadlockIcon size={12} color="var(--arc-cyan)" />
+                  <span style={H.equipLabel}>KIT</span>
+                </span>
+              )}
+            </div>
+          </PixelPanel>
         </div>
       )}
 
       {/* ---- Bottom-right: ammo + money ---- */}
       {me && (
         <div style={H.bottomRight}>
-          <div style={H.money}>${me.money}</div>
-          <div style={H.weaponName}>{w?.name}</div>
-          <div style={H.ammo}>
-            {w && w.slot !== "melee" && w.slot !== "grenade" ? (
-              <>
-                <span style={H.ammoMag}>{cur?.ammo ?? 0}</span>
-                <span style={H.ammoRes}> / {cur?.reserve ?? 0}</span>
-              </>
-            ) : (
-              <span style={H.ammoMag}>∞</span>
+          <PixelPanel style={{ padding: "8px 14px", textAlign: "right" }}>
+            {/* Money */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginBottom: 4 }}>
+              <DollarIcon size={12} />
+              <TickerNumber
+                value={me.money}
+                popOn="increase"
+                durationMs={200}
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 16,
+                  color: "var(--arc-gold)",
+                  lineHeight: 1,
+                }}
+              />
+            </div>
+            {/* Weapon name */}
+            {w && (
+              <div style={{
+                fontFamily: "var(--font-body)",
+                fontSize: 18,
+                textTransform: "uppercase",
+                color: "var(--arc-ink-dim)",
+                lineHeight: 1,
+                marginBottom: 4,
+              }}>
+                {w.name}
+              </div>
             )}
-          </div>
+            {/* Ammo */}
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 4 }}>
+              {w && w.slot !== "melee" && w.slot !== "grenade" ? (
+                <>
+                  <TickerNumber
+                    value={cur?.ammo ?? 0}
+                    popOn="change"
+                    durationMs={80}
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: 48,
+                      lineHeight: 1,
+                      color: (cur?.ammo ?? 0) === 0 ? "var(--arc-red)" : "var(--arc-white)",
+                      animation: (cur?.ammo ?? 0) === 0 && (cur?.reserve ?? 0) > 0
+                        ? "arc-blink 0.7s steps(1) infinite"
+                        : undefined,
+                    }}
+                  />
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: 16, color: "var(--arc-ink-faint)", lineHeight: 1 }}>
+                    /{cur?.reserve ?? 0}
+                  </span>
+                  {(cur?.ammo ?? 0) === 0 && (cur?.reserve ?? 0) > 0 && (
+                    <span style={{
+                      display: "block",
+                      fontFamily: "var(--font-display)",
+                      fontSize: 8,
+                      color: "var(--arc-red)",
+                      animation: "arc-blink 0.7s steps(1) infinite",
+                      letterSpacing: "0.08em",
+                    }}>
+                      RELOAD!
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 48, lineHeight: 1 }}>
+                  &infin;
+                </span>
+              )}
+            </div>
+          </PixelPanel>
         </div>
       )}
 
       {/* ---- Buy hint ---- */}
       {(game.phase === "buy" || dm) && me?.alive && !buyOpen && (
         <div style={H.buyHint}>
-          Press <kbd style={H.kbd}>B</kbd> to buy
+          Press <kbd className="arc-kbd">B</kbd> to buy
         </div>
       )}
 
@@ -165,21 +387,7 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
 
       {/* ---- Death / spectate screen ---- */}
       {me && !me.alive && game.phase !== "matchEnd" && (
-        <div style={H.deathScreen}>
-          <div style={H.deathTitle}>{dm ? "RESPAWNING…" : "BLENDED"}</div>
-          {(() => {
-            const k = [...game.killFeed].reverse().find((e) => e.victim === myId);
-            return k && k.killer ? (
-              <div style={H.deathSub}>
-                by{" "}
-                <span style={{ color: k.killerTeam ? TEAM_COLOR[k.killerTeam] : "#fff" }}>{k.killerName}</span>{" "}
-                with {WEAPONS[k.weapon]?.name ?? "?"}
-                {k.headshot ? " ✷" : ""}
-              </div>
-            ) : null;
-          })()}
-          {!dm && <div style={H.deathHint}>Spectating a teammate · click to switch · Esc for menu</div>}
-        </div>
+        <DeathScreen myId={myId} game={game} dm={dm} />
       )}
 
       {/* ---- Overlays ---- */}
@@ -188,49 +396,195 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
 
       {/* click-to-lock prompt */}
       {!locked && !buyOpen && !paused && game.phase !== "matchEnd" && (
-        <div style={H.clickToPlay} onClick={lockPointer}>
-          <div className="panel" style={H.ctpCard}>
-            <div style={{ fontSize: "2rem" }}>🍅🔫</div>
-            <div style={{ fontSize: "1.2rem", fontFamily: "var(--font-display)" }}>Click to play</div>
-            <div style={{ color: "var(--ink-dim)", fontSize: "0.85rem" }}>Esc releases the mouse</div>
-          </div>
+        <div style={{ ...H.clickToPlay, pointerEvents: "auto" }} onClick={lockPointer}>
+          <PixelPanel notch style={{ padding: "2rem 3rem", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <TomatoIcon size={32} color="var(--arc-red)" />
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 12, letterSpacing: "0.08em" }}>
+              CLICK TO PLAY
+            </div>
+            <div style={{ fontFamily: "var(--font-body)", fontSize: 16, color: "var(--arc-ink-dim)" }}>
+              Esc releases mouse
+            </div>
+          </PixelPanel>
         </div>
       )}
 
       {/* pause menu */}
       {paused && (
-        <div style={H.pauseOverlay}>
-          <div className="panel" style={H.pauseCard}>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.6rem" }}>Paused</h2>
-            <button className="btn" onClick={() => { useGameStore.getState().setUi({ paused: false }); lockPointer(); }}>
-              Resume
-            </button>
-            <button className="btn btn--ghost" onClick={() => useGameStore.getState().setUi({ paused: false, buyOpen: true })}>
-              Buy Menu
-            </button>
-            <button className="btn btn--ghost" onClick={() => useGameStore.getState().setUi({ settingsOpen: true })}>
-              Settings
-            </button>
-            <button className="btn btn--danger" onClick={onLeave}>
-              Leave Match
-            </button>
-            <div style={{ color: "var(--ink-faint)", fontSize: "0.78rem", textAlign: "center", lineHeight: 1.5 }}>
-              WASD move · Shift walk · Ctrl crouch · Space jump<br />
-              LMB fire · R reload · 1-4 weapons · G grenade · E use · Tab scores
+        <div style={{ ...H.pauseOverlay, pointerEvents: "auto" }}>
+          <PixelPanel
+            header={<span style={{ fontSize: 16, color: "var(--arc-green)" }}>PAUSED</span>}
+            style={{ width: 320, display: "flex", flexDirection: "column", gap: 0 }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 16 }}>
+              <ArcadeButton
+                variant="confirm"
+                size="lg"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  useGameStore.getState().setUi({ paused: false });
+                  lockPointer();
+                }}
+              >
+                &#9658; RESUME
+              </ArcadeButton>
+              <ArcadeButton
+                variant="ghost"
+                size="lg"
+                style={{ width: "100%" }}
+                onClick={() => useGameStore.getState().setUi({ paused: false, buyOpen: true })}
+              >
+                ARMORY
+              </ArcadeButton>
+              <ArcadeButton
+                variant="ghost"
+                size="lg"
+                style={{ width: "100%" }}
+                onClick={() => useGameStore.getState().setUi({ settingsOpen: true })}
+              >
+                SETTINGS
+              </ArcadeButton>
+              <ArcadeButton
+                variant="danger"
+                size="lg"
+                style={{ width: "100%" }}
+                onClick={onLeave}
+              >
+                LEAVE MATCH
+              </ArcadeButton>
+              {/* Controls cheatsheet */}
+              <div style={H.cheatsheet}>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">WASD</kbd>
+                  <span style={H.cheatAction}>Move</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">Shift</kbd>
+                  <span style={H.cheatAction}>Walk</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">Ctrl</kbd>
+                  <span style={H.cheatAction}>Crouch</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">Space</kbd>
+                  <span style={H.cheatAction}>Jump</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">LMB</kbd>
+                  <span style={H.cheatAction}>Fire</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">R</kbd>
+                  <span style={H.cheatAction}>Reload</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">1-4</kbd>
+                  <span style={H.cheatAction}>Weapons</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">G</kbd>
+                  <span style={H.cheatAction}>Grenade</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">E</kbd>
+                  <span style={H.cheatAction}>Use</span>
+                </div>
+                <div style={H.cheatRow}>
+                  <kbd className="arc-kbd">Tab</kbd>
+                  <span style={H.cheatAction}>Scores</span>
+                </div>
+              </div>
             </div>
-          </div>
+          </PixelPanel>
         </div>
       )}
     </div>
   );
 }
 
-const KEYFRAMES = `
-@keyframes ts-dmg { 0%{transform:translate(-50%,0) scale(1.25);opacity:1} 100%{transform:translate(-50%,-48px) scale(0.9);opacity:0} }
-@keyframes ts-hitpop { 0%{transform:translate(-50%,-50%) rotate(45deg) scale(1.7);opacity:1} 100%{transform:translate(-50%,-50%) rotate(45deg) scale(1);opacity:0} }
-@keyframes ts-vig { 0%{opacity:0.65} 100%{opacity:0} }
-@keyframes ts-pulse { 0%,100%{opacity:0.22} 50%{opacity:0.55} }
-`;
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function TeamScorePlate({ team, score }: { team: "guard" | "spoilers"; score: number }) {
+  const color = TEAM_COLOR[team];
+  const label = team === "guard" ? "GRD" : "SPL";
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: "4px 16px",
+        background: "var(--arc-panel)",
+        border: `3px solid ${color}`,
+        boxShadow: "5px 5px 0 var(--arc-black)",
+        minWidth: 72,
+      }}
+    >
+      <span style={{ fontFamily: "var(--font-display)", fontSize: 8, color, letterSpacing: "0.1em" }}>
+        {label}
+      </span>
+      <TickerNumber
+        value={score}
+        popOn="change"
+        durationMs={200}
+        style={{ fontFamily: "var(--font-display)", fontSize: 24, color, lineHeight: 1 }}
+      />
+    </div>
+  );
+}
+
+function TimerPlate({
+  phaseLeft,
+  bombLeft,
+  bombPlanted,
+  bombCritical,
+  phase,
+  roundNumber,
+  dm,
+}: {
+  phaseLeft: number;
+  bombLeft: number;
+  bombPlanted: boolean;
+  bombCritical: boolean;
+  phase: string;
+  roundNumber: number;
+  dm: boolean;
+}) {
+  const borderColor = bombPlanted ? "var(--arc-red)" : "var(--arc-black)";
+  return (
+    <div
+      style={{
+        textAlign: "center",
+        padding: "4px 20px",
+        background: "var(--arc-panel)",
+        border: `3px solid ${borderColor}`,
+        boxShadow: "5px 5px 0 var(--arc-black)",
+        minWidth: 100,
+        animation: bombCritical ? "arc-shake 0.22s steps(4) infinite" : undefined,
+      }}
+    >
+      {bombPlanted ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <BombIcon
+            size={14}
+            color="var(--arc-red)"
+            style={{ animation: "arc-blink 0.9s steps(1) infinite" }}
+          />
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--arc-red)", lineHeight: 1 }}>
+            {bombLeft.toFixed(0)}
+          </span>
+        </div>
+      ) : (
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 24, lineHeight: 1 }}>
+          {fmtTime(phaseLeft)}
+        </span>
+      )}
+    </div>
+  );
+}
 
 interface DmgItem {
   id: number;
@@ -240,63 +594,145 @@ interface DmgItem {
   x: number;
 }
 
-/** Floating damage numbers + a hit/kill marker, fired by the controller. */
-function FeedbackLayer() {
+// Damage tier thresholds for hitmarker and number sizing
+const HIGH_DAMAGE = 40;
+
+/**
+ * Floating damage numbers + pixel hitmarker.
+ * Kill event triggers screen-shake via hudWrapRef.classList — zero React state.
+ *
+ * Hitmarker tiers:
+ *   normal hit          — 4px ticks, white, arc-hitmarker-punch (expand-settle)
+ *   high-damage hit>40  — 6px ticks, white, bigger expand
+ *   headshot            — 5px ticks, gold
+ *   kill                — 8px ticks, red, double-size wrapper (arc-stamp scale)
+ *
+ * Damage number tiers:
+ *   normal              — 12px, arc-rise 0.76s steps(6)
+ *   headshot/high       — 16px, arc-rise 0.76s steps(6)
+ *   kill                — 20px, white flash frame (arc-flash overlay), longer hold (1.1s)
+ */
+function FeedbackLayer({ hudWrapRef }: { hudWrapRef: React.RefObject<HTMLDivElement | null> }) {
   const [items, setItems] = useState<DmgItem[]>([]);
-  const [marker, setMarker] = useState<{ id: number; kill: boolean; head: boolean } | null>(null);
+  const [marker, setMarker] = useState<{ id: number; kill: boolean; head: boolean; amount: number } | null>(null);
   const idRef = useRef(0);
+
   useEffect(() => {
     return onHudDamage((e) => {
       const id = ++idRef.current;
       const x = (Math.random() - 0.5) * 46;
       setItems((arr) => [...arr.slice(-6), { id, amount: Math.round(e.amount), head: e.head, kill: e.kill, x }]);
-      setMarker({ id, kill: e.kill, head: e.head });
-      window.setTimeout(() => setItems((arr) => arr.filter((it) => it.id !== id)), 760);
-      window.setTimeout(() => setMarker((m) => (m && m.id === id ? null : m)), 230);
-    });
-  }, []);
+      setMarker({ id, kill: e.kill, head: e.head, amount: Math.round(e.amount) });
 
-  const mc = marker?.kill ? "#ff3b30" : marker?.head ? "#ffd23f" : "#ffffff";
+      // Screen-shake on kill: toggle class on hud wrapper
+      if (e.kill && hudWrapRef.current) {
+        const el = hudWrapRef.current;
+        el.classList.add("arc-shake-cls");
+        const onEnd = () => {
+          el.classList.remove("arc-shake-cls");
+          el.removeEventListener("animationend", onEnd);
+        };
+        el.addEventListener("animationend", onEnd);
+      }
+
+      // Kill numbers hold longer before fading; normal numbers clear at 760ms
+      const holdMs = e.kill ? 1100 : 760;
+      window.setTimeout(() => setItems((arr) => arr.filter((it) => it.id !== id)), holdMs);
+      // Marker stays visible slightly longer for high-damage/kill hits
+      const markerMs = e.kill ? 340 : e.head || e.amount > HIGH_DAMAGE ? 300 : 260;
+      window.setTimeout(() => setMarker((m) => (m && m.id === id ? null : m)), markerMs);
+    });
+  }, [hudWrapRef]);
+
+  // Marker color
+  const mc = marker?.kill ? "var(--arc-red)" : marker?.head ? "var(--arc-gold)" : "var(--arc-white)";
+
+  // Tick size: kill=8, headshot=5, high-damage=6, normal=4
+  const tickSz = marker
+    ? marker.kill ? 8
+    : marker.head ? 5
+    : (marker.amount > HIGH_DAMAGE ? 6 : 4)
+    : 4;
+
+  // Tick offset from center: half of tickSz + 3px gap
+  const gap = tickSz / 2 + 3;
+
+  // Wrapper scale for kill hits (double the marker group)
+  const wrapperScale = marker?.kill ? "scale(2)" : "scale(1)";
+
+  // Animation: 2-frame punch (expand → settle) using arc-stamp which goes from
+  // scale(1.8)→scale(1); for a "punchier" feel we use a faster duration on
+  // non-kill markers and let the transform overshoot be provided by arc-stamp.
+  // High-damage gets a slightly longer stamp so the expand is perceptible.
+  const animDur = marker?.kill ? "0.22s" : marker?.head || (marker?.amount ?? 0) > HIGH_DAMAGE ? "0.20s" : "0.14s";
+
   return (
     <div style={{ position: "absolute", top: "50%", left: "50%", width: 0, height: 0, pointerEvents: "none" }}>
-      <style>{KEYFRAMES}</style>
+      {/* Pixel hitmarker: 4 square ticks with damage-tier sizing */}
       {marker && (
-        <div key={marker.id} style={{ position: "absolute", top: 0, left: 0, animation: "ts-hitpop 0.23s ease-out forwards" }}>
-          {[-11, 5].map((l) => (
-            <span key={`h${l}`} style={{ position: "absolute", left: l, top: -1.5, width: 6, height: 3, background: mc, boxShadow: "0 0 3px rgba(0,0,0,0.9)" }} />
-          ))}
-          {[-11, 5].map((t) => (
-            <span key={`v${t}`} style={{ position: "absolute", left: -1.5, top: t, width: 3, height: 6, background: mc, boxShadow: "0 0 3px rgba(0,0,0,0.9)" }} />
-          ))}
-        </div>
-      )}
-      {items.map((it) => (
         <div
-          key={it.id}
+          key={marker.id}
           style={{
             position: "absolute",
-            top: -12,
-            left: it.x,
-            transform: "translate(-50%,0)",
-            color: it.kill ? "#ff5a4a" : it.head ? "#ffd23f" : "#fff",
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: it.head || it.kill ? "1.4rem" : "1.05rem",
-            textShadow: "0 1px 3px rgba(0,0,0,0.9)",
-            animation: "ts-dmg 0.76s ease-out forwards",
-            whiteSpace: "nowrap",
+            top: 0,
+            left: 0,
+            transform: wrapperScale,
+            // arc-stamp goes scale(1.8)→scale(1) — the 2-frame expand-then-settle punch
+            animation: `arc-stamp ${animDur} steps(2) both`,
           }}
         >
-          {it.head ? "★" : ""}
-          {it.amount}
-          {it.kill ? " ✖" : ""}
+          {/* top-left tick */}
+          <span style={{ position: "absolute", right: gap, bottom: gap, width: tickSz, height: tickSz, background: mc, outline: "1px solid var(--arc-black)" }} />
+          {/* top-right tick */}
+          <span style={{ position: "absolute", left: gap, bottom: gap, width: tickSz, height: tickSz, background: mc, outline: "1px solid var(--arc-black)" }} />
+          {/* bottom-left tick */}
+          <span style={{ position: "absolute", right: gap, top: gap, width: tickSz, height: tickSz, background: mc, outline: "1px solid var(--arc-black)" }} />
+          {/* bottom-right tick */}
+          <span style={{ position: "absolute", left: gap, top: gap, width: tickSz, height: tickSz, background: mc, outline: "1px solid var(--arc-black)" }} />
         </div>
-      ))}
+      )}
+      {/* Floating damage numbers */}
+      {items.map((it) => {
+        // Font size tier: kill=20, headshot/high-dmg=16, normal=12
+        const fz = it.kill ? 20 : (it.head || it.amount > HIGH_DAMAGE) ? 16 : 12;
+        // Kill numbers get a 1-frame white flash overlay using arc-flash keyframe
+        const color = it.kill ? "var(--arc-red)" : it.head ? "var(--arc-gold)" : "var(--arc-white)";
+        const riseDur = it.kill ? "1.1s" : "0.76s";
+        return (
+          <div
+            key={it.id}
+            style={{
+              position: "absolute",
+              top: -12,
+              left: it.x,
+              color,
+              fontFamily: "var(--font-display)",
+              fontSize: fz,
+              outline: "1px solid var(--arc-black)",
+              animation: `arc-rise ${riseDur} steps(6) forwards`,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {/* Kill: 1-frame white flash frame behind the number */}
+            {it.kill && (
+              <span style={{
+                position: "absolute",
+                inset: 0,
+                animation: "arc-flash 0.08s steps(1) both",
+                pointerEvents: "none",
+              }} />
+            )}
+            {it.head && <StarIcon size={10} style={{ marginRight: 2 }} />}
+            {it.amount}
+            {it.kill && <CrossIcon size={10} style={{ marginLeft: 2 }} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-/** Red edge flash when you take damage + a steady pulse at low HP. */
+/** Red edge vignette flash on damage + steady pulse at low HP. */
 function DamageVignette({ hp, alive }: { hp: number; alive: boolean }) {
   const [hurtAt, setHurtAt] = useState(0);
   const last = useRef(hp);
@@ -309,24 +745,67 @@ function DamageVignette({ hp, alive }: { hp: number; alive: boolean }) {
   return (
     <>
       {hurtAt > 0 && (
-        <div key={hurtAt} style={{ ...base, background: "radial-gradient(ellipse at center, transparent 52%, rgba(190,18,18,0.75) 100%)", animation: "ts-vig 0.5s ease-out forwards" }} />
+        <div
+          key={hurtAt}
+          style={{
+            ...base,
+            background: "radial-gradient(ellipse at center, transparent 52%, rgba(190,18,18,0.75) 100%)",
+            animation: "arc-vig 0.5s steps(3) forwards",
+          }}
+        />
       )}
       {low && (
-        <div style={{ ...base, background: "radial-gradient(ellipse at center, transparent 48%, rgba(190,18,18,0.55) 100%)", animation: "ts-pulse 1.1s ease-in-out infinite" }} />
+        <div
+          style={{
+            ...base,
+            background: "radial-gradient(ellipse at center, transparent 48%, rgba(190,18,18,0.55) 100%)",
+            animation: "arc-pulse 1.1s steps(2) infinite",
+          }}
+        />
       )}
     </>
   );
 }
 
-/** Black scope mask + reticle for the Cucumber Cannon. */
+/**
+ * Pixel scope overlay: square center dot, 2px hard cross, 4px green ring.
+ * No soft glows — hard pixel edges only.
+ */
 function ScopeOverlay() {
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none" }}>
-      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at center, transparent 0 30vh, rgba(0,0,0,0.97) 31vh)" }} />
-      <div style={{ position: "absolute", top: "50%", left: "50%", width: "62vh", height: "62vh", transform: "translate(-50%,-50%)", borderRadius: "50%", boxShadow: "inset 0 0 0 3px rgba(124,252,88,0.15), inset 0 0 40px rgba(0,0,0,0.7)" }} />
-      <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: 1, background: "rgba(20,40,20,0.6)" }} />
-      <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 1, background: "rgba(20,40,20,0.6)" }} />
-      <div style={{ position: "absolute", top: "50%", left: "50%", width: 5, height: 5, transform: "translate(-50%,-50%)", borderRadius: "50%", background: "#7CFC58" }} />
+      {/* Black mask with cutout */}
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        background: "radial-gradient(circle at center, transparent 0 29vh, #050604 30vh)",
+      }} />
+      {/* 4px chunky green ring */}
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        width: "60vh",
+        height: "60vh",
+        transform: "translate(-50%,-50%)",
+        border: "4px solid var(--arc-green)",
+        imageRendering: "pixelated",
+      }} />
+      {/* Horizontal cross line */}
+      <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 2, background: "rgba(20,40,20,0.65)", marginTop: -1 }} />
+      {/* Vertical cross line */}
+      <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, background: "rgba(20,40,20,0.65)", marginLeft: -1 }} />
+      {/* Square center dot */}
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        width: 6,
+        height: 6,
+        transform: "translate(-50%,-50%)",
+        background: "var(--arc-green)",
+        imageRendering: "pixelated",
+      }} />
     </div>
   );
 }
@@ -351,7 +830,14 @@ function FpsCounter() {
     return () => cancelAnimationFrame(raf);
   }, []);
   return (
-    <div style={{ position: "absolute", top: 16, left: 200, fontSize: "0.8rem", color: fps >= 50 ? "var(--leaf)" : fps >= 30 ? "var(--gold)" : "var(--tomato)" }}>
+    <div style={{
+      position: "absolute",
+      top: 16,
+      left: 200,
+      fontFamily: "var(--font-display)",
+      fontSize: 8,
+      color: fps >= 50 ? "var(--arc-green)" : fps >= 30 ? "var(--arc-gold)" : "var(--arc-red)",
+    }}>
       {fps} FPS
     </div>
   );
@@ -363,11 +849,178 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-function TeamScore({ team, score, flip }: { team: "guard" | "spoilers"; score: number; flip: boolean }) {
+function DeathScreen({ myId, game, dm }: { myId: string; game: GameState; dm: boolean }) {
+  const k = [...game.killFeed].reverse().find((e) => e.victim === myId);
   return (
-    <div style={{ ...H.teamScore, flexDirection: flip ? "row-reverse" : "row", borderColor: TEAM_COLOR[team] }}>
-      <span style={{ ...H.teamScoreNum, color: TEAM_COLOR[team] }}>{score}</span>
-      <span style={H.teamScoreName}>{TEAMS[team].short}</span>
+    <div style={H.deathScreen}>
+      {/* Two letterbox bars will arc-slam when round end triggers; death screen is simpler */}
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 8,
+      }}>
+        <SkullIcon size={32} />
+        <div style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 24,
+          color: "var(--arc-red)",
+          letterSpacing: "0.08em",
+          animation: "arc-stamp 0.18s steps(3) both",
+        }}>
+          {dm ? "RESPAWNING…" : "BLENDED"}
+        </div>
+        {k && k.killer && (
+          <div style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "var(--arc-ink-dim)" }}>
+            by{" "}
+            <span style={{ color: k.killerTeam ? TEAM_COLOR[k.killerTeam] : "var(--arc-white)" }}>
+              {k.killerName}
+            </span>{" "}
+            with {WEAPONS[k.weapon]?.name ?? "?"}
+            {k.headshot && <StarIcon size={12} style={{ marginLeft: 4 }} />}
+          </div>
+        )}
+        {!dm && (
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 8, color: "var(--arc-ink-faint)", letterSpacing: "0.08em" }}>
+            Spectating teammate &middot; click to switch &middot; <kbd className="arc-kbd">Esc</kbd> menu
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RoundBanner({ game, myTeam }: { game: GameState; myTeam?: TeamId }) {
+  const reason = game.lastRoundReason;
+  const reasonText: Record<string, string> = {
+    elimination_guard: "Garden Guard eliminated the Spoilers",
+    elimination_spoilers: "The Spoilers wiped the Guard",
+    bomb_detonated: "The Salsa Bomb detonated",
+    bomb_defused: "Bomb defused",
+    time_expired: "Time expired — Garden Guard holds",
+    target_reached: "Score target reached",
+  };
+  const won =
+    myTeam &&
+    ((reason?.includes("guard") && myTeam === "guard") ||
+      (reason === "bomb_defused" && myTeam === "guard") ||
+      (reason === "time_expired" && myTeam === "guard") ||
+      (reason === "bomb_detonated" && myTeam === "spoilers") ||
+      (reason?.includes("spoilers") && myTeam === "spoilers"));
+
+  const resultColor = won ? "var(--arc-green)" : "var(--arc-red)";
+  const resultText = won ? "ROUND WON" : "ROUND LOST";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 40 }}>
+      {/* Top letterbox bar */}
+      <div style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: "28%",
+        background: "var(--arc-black)",
+        animation: "arc-slam-down 0.22s steps(3) both",
+      }} />
+      {/* Bottom letterbox bar */}
+      <div style={{
+        position: "absolute",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: "28%",
+        background: "var(--arc-black)",
+        animation: "arc-slam-up 0.22s steps(3) both",
+      }} />
+      {/* Center stamp */}
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%,-50%)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 8,
+        textAlign: "center",
+      }}>
+        <div style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 32,
+          color: resultColor,
+          animation: "arc-stamp 0.18s steps(3) 0.15s both",
+          letterSpacing: "0.06em",
+        }}>
+          {resultText}
+        </div>
+        <div style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "var(--arc-ink-dim)" }}>
+          {reason ? reasonText[reason] : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MatchBanner({ engine, onLeave }: { engine: GameEngine; onLeave: () => void }) {
+  const game = useGameStore((s) => s.game)!;
+  const winner = game.winner;
+  const mvp = game.mvp ? game.players[game.mvp] : null;
+  const winColor = winner ? TEAM_COLOR[winner] : "var(--arc-white)";
+
+  return (
+    <div style={{ ...H.matchOverlay, pointerEvents: "auto" }}>
+      {/* Scanline overlay */}
+      <div className="arc-scanlines" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }} />
+      <PixelPanel
+        notch
+        style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "2.5rem 3rem", textAlign: "center", minWidth: 360 }}
+      >
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: "0.2em", color: "var(--arc-ink-dim)" }}>
+          MATCH OVER
+        </div>
+        {/* Winner stamp */}
+        <div style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 32,
+          color: winColor,
+          animation: "arc-stamp 0.18s steps(3) both",
+          letterSpacing: "0.04em",
+        }}>
+          {winner ? `${TEAMS[winner].name.toUpperCase()} WIN` : "DRAW"}
+        </div>
+        {/* Giant score */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontFamily: "var(--font-display)" }}>
+          <TickerNumber
+            value={game.scores.guard}
+            style={{ fontSize: 48, color: TEAM_COLOR.guard, lineHeight: 1 }}
+          />
+          <span style={{ fontSize: 24, color: "var(--arc-ink-faint)" }}>:</span>
+          <TickerNumber
+            value={game.scores.spoilers}
+            style={{ fontSize: 48, color: TEAM_COLOR.spoilers, lineHeight: 1 }}
+          />
+        </div>
+        {/* MVP plate */}
+        {mvp && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "rgba(255,210,63,0.12)",
+            border: "3px solid var(--arc-gold)",
+            padding: "6px 14px",
+          }}>
+            <StarIcon size={14} />
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 10, color: "var(--arc-gold)", letterSpacing: "0.06em" }}>
+              MVP: {mvp.name} &nbsp;{mvp.kills}K / {mvp.deaths}D
+            </span>
+          </div>
+        )}
+        <ArcadeButton variant="confirm" size="lg" style={{ marginTop: 8 }} onClick={onLeave}>
+          BACK TO MENU
+        </ArcadeButton>
+      </PixelPanel>
     </div>
   );
 }
@@ -381,7 +1034,8 @@ function Crosshair({ bloom }: { bloom: number }) {
   const line = (style: React.CSSProperties): React.CSSProperties => ({
     position: "absolute",
     background: c,
-    boxShadow: "0 0 2px rgba(0,0,0,0.8)",
+    // Hard 1px black outline instead of soft glow
+    outline: "1px solid rgba(0,0,0,0.9)",
     ...style,
   });
   return (
@@ -390,74 +1044,14 @@ function Crosshair({ bloom }: { bloom: number }) {
       <span style={line({ width: th, height: len, left: -th / 2, bottom: gap })} />
       <span style={line({ height: th, width: len, top: -th / 2, left: gap })} />
       <span style={line({ height: th, width: len, top: -th / 2, right: gap })} />
-      <span style={line({ width: 2, height: 2, left: -1, top: -1, opacity: 0.8 })} />
+      <span style={line({ width: 2, height: 2, left: -1, top: -1, opacity: 0.9 })} />
     </div>
   );
 }
 
-function Bar({ value, max, color }: { value: number; max: number; color: string }) {
-  return (
-    <div style={{ width: 120, height: 6, background: "rgba(0,0,0,0.45)", borderRadius: 3, overflow: "hidden" }}>
-      <div style={{ width: `${Math.max(0, Math.min(1, value / max)) * 100}%`, height: "100%", background: color, transition: "width 0.15s" }} />
-    </div>
-  );
-}
-
-function RoundBanner({ game, myTeam }: { game: GameState; myTeam?: TeamId }) {
-  const reason = game.lastRoundReason;
-  const text: Record<string, string> = {
-    elimination_guard: "Garden Guard eliminated the Spoilers!",
-    elimination_spoilers: "The Spoilers wiped the Guard!",
-    bomb_detonated: "💥 The Salsa Bomb detonated!",
-    bomb_defused: "✂️ Bomb defused!",
-    time_expired: "⏱ Time! Garden Guard holds.",
-    target_reached: "Score target reached!",
-  };
-  const won =
-    myTeam &&
-    ((reason?.includes("guard") && myTeam === "guard") ||
-      (reason === "bomb_defused" && myTeam === "guard") ||
-      (reason === "time_expired" && myTeam === "guard") ||
-      (reason === "bomb_detonated" && myTeam === "spoilers") ||
-      (reason?.includes("spoilers") && myTeam === "spoilers"));
-  return (
-    <div style={H.bannerWrap}>
-      <div style={{ ...H.banner, borderColor: won ? "var(--leaf)" : "var(--tomato)" }}>
-        <div style={{ fontSize: "1.5rem", color: won ? "var(--leaf)" : "var(--tomato)" }}>{won ? "ROUND WON" : "ROUND LOST"}</div>
-        <div style={{ color: "var(--ink-dim)", fontSize: "0.95rem" }}>{reason ? text[reason] : ""}</div>
-      </div>
-    </div>
-  );
-}
-
-function MatchBanner({ engine, onLeave }: { engine: GameEngine; onLeave: () => void }) {
-  const game = useGameStore((s) => s.game)!;
-  const winner = game.winner;
-  const mvp = game.mvp ? game.players[game.mvp] : null;
-  return (
-    <div style={H.matchOverlay}>
-      <div className="panel" style={H.matchCard}>
-        <div style={{ fontSize: "0.8rem", letterSpacing: "0.2em", color: "var(--ink-dim)" }}>MATCH OVER</div>
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2.4rem", color: winner ? TEAM_COLOR[winner] : "var(--ink)" }}>
-          {winner ? `${TEAMS[winner].name} win!` : "Draw!"}
-        </h1>
-        <div style={{ fontSize: "1.6rem", margin: "0.5rem 0" }}>
-          <span style={{ color: TEAM_COLOR.guard }}>{game.scores.guard}</span>
-          <span style={{ color: "var(--ink-faint)" }}> — </span>
-          <span style={{ color: TEAM_COLOR.spoilers }}>{game.scores.spoilers}</span>
-        </div>
-        {mvp && (
-          <div style={{ color: "var(--gold)", fontFamily: "var(--font-display)" }}>
-            🏆 MVP: {mvp.name} ({mvp.kills}K / {mvp.deaths}D)
-          </div>
-        )}
-        <button className="btn" style={{ marginTop: "1rem" }} onClick={onLeave}>
-          Back to Menu
-        </button>
-      </div>
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// Style map
+// ---------------------------------------------------------------------------
 
 const overlayBase: React.CSSProperties = {
   position: "fixed",
@@ -468,51 +1062,171 @@ const overlayBase: React.CSSProperties = {
 };
 
 const H: Record<string, React.CSSProperties> = {
-  root: { position: "fixed", inset: 0, pointerEvents: "none", fontFamily: "var(--font-display)", userSelect: "none", color: "var(--ink)" },
-  topCenter: { position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10 },
-  teamScore: { display: "flex", alignItems: "center", gap: 8, padding: "4px 14px", background: "rgba(8,12,8,0.7)", border: "1px solid", borderRadius: 8, backdropFilter: "blur(6px)" },
-  teamScoreNum: { fontSize: "1.8rem", fontWeight: 700, lineHeight: 1 },
-  teamScoreName: { fontSize: "0.7rem", color: "var(--ink-dim)", letterSpacing: "0.1em" },
-  timerBox: { textAlign: "center", padding: "2px 16px", background: "rgba(8,12,8,0.7)", borderRadius: 8, minWidth: 92 },
-  timer: { fontSize: "1.5rem", fontWeight: 700, lineHeight: 1.1 },
-  phaseLabel: { fontSize: "0.62rem", color: "var(--ink-dim)", letterSpacing: "0.15em" },
-  killFeed: { position: "absolute", top: 80, right: 16, display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", fontSize: "0.85rem" },
-  killRow: { background: "rgba(8,12,8,0.6)", padding: "3px 8px", borderRadius: 6, whiteSpace: "nowrap" },
-  killWeapon: { color: "var(--ink-faint)", fontSize: "0.78rem" },
-  center: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)" },
-  hitmarker: { position: "absolute", top: 0, left: 0, width: 0, height: 0, opacity: 0 },
-  hmTL: { position: "absolute", width: 8, height: 2, background: "#fff", left: -12, top: -12, transform: "rotate(45deg)" },
-  hmTR: { position: "absolute", width: 8, height: 2, background: "#fff", left: 4, top: -12, transform: "rotate(-45deg)" },
-  hmBL: { position: "absolute", width: 8, height: 2, background: "#fff", left: -12, top: 10, transform: "rotate(-45deg)" },
-  hmBR: { position: "absolute", width: 8, height: 2, background: "#fff", left: 4, top: 10, transform: "rotate(45deg)" },
-  actionBar: { position: "absolute", top: "58%", left: "50%", transform: "translateX(-50%)", textAlign: "center", width: 260 },
-  actionLabel: { fontSize: "0.8rem", letterSpacing: "0.2em", color: "var(--gold)", marginBottom: 4 },
-  progressOuter: { width: "100%", height: 8, background: "rgba(0,0,0,0.5)", borderRadius: 4, overflow: "hidden" },
-  progressInner: { height: "100%", background: "var(--gold)", transition: "width 0.05s linear" },
-  bombHint: { position: "absolute", top: "64%", left: "50%", transform: "translateX(-50%)", fontSize: "0.85rem", color: "var(--tomato-bright)", background: "rgba(8,12,8,0.6)", padding: "4px 10px", borderRadius: 6 },
-  bottomLeft: { position: "absolute", left: 22, bottom: 22 },
-  hpRow: { display: "flex", alignItems: "center", gap: 10 },
-  hpNum: { fontSize: "2.4rem", fontWeight: 700, lineHeight: 1, minWidth: 64 },
-  vitalBars: { display: "flex", flexDirection: "column", gap: 4 },
-  bottomRight: { position: "absolute", right: 22, bottom: 18, textAlign: "right" },
-  money: { fontSize: "1.3rem", color: "var(--gold)", fontWeight: 600 },
-  weaponName: { fontSize: "0.85rem", color: "var(--ink-dim)" },
-  ammo: { lineHeight: 1 },
-  ammoMag: { fontSize: "2.6rem", fontWeight: 700 },
-  ammoRes: { fontSize: "1.2rem", color: "var(--ink-dim)" },
-  buyHint: { position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)", fontSize: "0.85rem", color: "var(--ink-dim)" },
-  kbd: { background: "var(--bg-3)", border: "1px solid var(--panel-edge)", borderRadius: 4, padding: "1px 6px", fontFamily: "var(--font-display)" },
-  deadNotice: { position: "absolute", top: "44%", left: "50%", transform: "translateX(-50%)", fontSize: "1.1rem", color: "var(--tomato)", background: "rgba(8,12,8,0.6)", padding: "6px 14px", borderRadius: 8 },
-  deathScreen: { position: "absolute", top: "40%", left: "50%", transform: "translate(-50%,-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, textAlign: "center", background: "rgba(8,12,8,0.55)", padding: "14px 30px", borderRadius: 12, border: "1px solid rgba(255,59,48,0.35)", backdropFilter: "blur(4px)" },
-  deathTitle: { fontFamily: "var(--font-display)", fontSize: "2rem", fontWeight: 700, color: "var(--tomato)", letterSpacing: "0.06em" },
-  deathSub: { fontSize: "0.95rem", color: "var(--ink-dim)", fontFamily: "var(--font-body)" },
-  deathHint: { fontSize: "0.74rem", color: "var(--ink-faint)" },
-  bannerWrap: { ...overlayBase, top: "30%", bottom: "auto" },
-  banner: { textAlign: "center", padding: "1rem 2rem", background: "rgba(8,12,8,0.8)", border: "2px solid", borderRadius: 12, backdropFilter: "blur(8px)" },
-  clickToPlay: { ...overlayBase, pointerEvents: "auto", cursor: "pointer", background: "rgba(5,8,5,0.3)" },
-  ctpCard: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "2rem 3rem" },
-  pauseOverlay: { ...overlayBase, pointerEvents: "auto", background: "rgba(5,8,5,0.6)", backdropFilter: "blur(6px)" },
-  pauseCard: { display: "flex", flexDirection: "column", gap: 12, padding: "2rem", width: 320 },
-  matchOverlay: { ...overlayBase, pointerEvents: "auto", background: "rgba(5,8,5,0.7)", backdropFilter: "blur(8px)" },
-  matchCard: { display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "2.5rem 3rem", textAlign: "center" },
+  topCenter: {
+    position: "absolute",
+    top: 16,
+    left: "50%",
+    transform: "translateX(-50%)",
+    display: "flex",
+    alignItems: "stretch",
+    gap: 0,
+  },
+  phaseStrip: {
+    position: "absolute",
+    top: 80,
+    left: "50%",
+    transform: "translateX(-50%)",
+    fontFamily: "var(--font-display)",
+    fontSize: 8,
+    letterSpacing: "0.15em",
+    color: "var(--arc-ink-dim)",
+    background: "var(--arc-panel)",
+    border: "2px solid var(--arc-black)",
+    padding: "3px 12px",
+    whiteSpace: "nowrap",
+  },
+  killFeed: {
+    position: "absolute",
+    top: 80,
+    right: 16,
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    alignItems: "flex-end",
+  },
+  killRow: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    background: "var(--arc-black)",
+    padding: "3px 8px 3px 6px",
+    fontFamily: "var(--font-display)",
+    fontSize: 8,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+  },
+  killWeapon: {
+    fontFamily: "var(--font-body)",
+    fontSize: 14,
+    color: "var(--arc-ink-faint)",
+  },
+  center: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%,-50%)",
+  },
+  actionBar: {
+    position: "absolute",
+    top: "58%",
+    left: "50%",
+    transform: "translateX(-50%)",
+    textAlign: "center",
+  },
+  actionLabel: {
+    fontFamily: "var(--font-display)",
+    fontSize: 12,
+    color: "var(--arc-gold)",
+    letterSpacing: "0.08em",
+  },
+  bombHint: {
+    position: "absolute",
+    top: "64%",
+    left: "50%",
+    transform: "translateX(-50%)",
+    fontFamily: "var(--font-display)",
+    fontSize: 8,
+    color: "var(--arc-red)",
+    background: "var(--arc-panel)",
+    border: "2px solid var(--arc-red)",
+    padding: "4px 10px",
+    display: "flex",
+    alignItems: "center",
+    whiteSpace: "nowrap",
+  },
+  bottomLeft: {
+    position: "absolute",
+    left: 22,
+    bottom: 22,
+  },
+  hpRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  },
+  vitalBars: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  equipIcon: {
+    display: "flex",
+    alignItems: "center",
+    gap: 3,
+    background: "var(--arc-panel-hi)",
+    border: "2px solid var(--arc-black)",
+    padding: "2px 5px",
+  },
+  equipLabel: {
+    fontFamily: "var(--font-display)",
+    fontSize: 8,
+    color: "var(--arc-ink-dim)",
+    letterSpacing: "0.06em",
+  },
+  bottomRight: {
+    position: "absolute",
+    right: 22,
+    bottom: 18,
+  },
+  buyHint: {
+    position: "absolute",
+    bottom: 90,
+    left: "50%",
+    transform: "translateX(-50%)",
+    fontFamily: "var(--font-display)",
+    fontSize: 8,
+    color: "var(--arc-ink-dim)",
+  },
+  deathScreen: {
+    position: "absolute",
+    top: "40%",
+    left: "50%",
+    transform: "translate(-50%,-50%)",
+    background: "var(--arc-panel)",
+    border: "3px solid var(--arc-red)",
+    boxShadow: "5px 5px 0 var(--arc-black)",
+    padding: "24px 40px",
+    textAlign: "center",
+  },
+  clickToPlay: {
+    ...overlayBase,
+    cursor: "pointer",
+    background: "rgba(5,6,4,0.4)",
+  },
+  pauseOverlay: {
+    ...overlayBase,
+    background: "rgba(5,6,4,0.75)",
+  },
+  matchOverlay: {
+    ...overlayBase,
+    background: "rgba(5,6,4,0.82)",
+  },
+  cheatsheet: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "6px 12px",
+    marginTop: 12,
+    padding: "10px",
+    borderTop: "2px solid var(--arc-black)",
+  },
+  cheatRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  cheatAction: {
+    fontFamily: "var(--font-body)",
+    fontSize: 14,
+    color: "var(--arc-ink-dim)",
+  },
 };

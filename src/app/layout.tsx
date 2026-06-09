@@ -1,17 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Chakra_Petch, Inter } from "next/font/google";
+import { Press_Start_2P, VT323 } from "next/font/google";
 import "./globals.css";
 
-// Tactical, techy display + HUD face. Inter for clean body copy.
-const chakra = Chakra_Petch({
+// Retro-arcade type pair: Press Start 2P for titles/numerals/labels,
+// VT323 for body copy, feeds and tables (readable at 16px+).
+const arcade = Press_Start_2P({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-display",
+  weight: "400",
+  variable: "--font-arcade",
   display: "swap",
 });
-const inter = Inter({
+const pixel = VT323({
   subsets: ["latin"],
-  variable: "--font-body",
+  weight: "400",
+  variable: "--font-pixel",
   display: "swap",
 });
 
@@ -39,7 +41,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${chakra.variable} ${inter.variable}`}>
+    <html lang="en" className={`${arcade.variable} ${pixel.variable}`}>
       <body>{children}</body>
     </html>
   );

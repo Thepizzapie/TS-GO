@@ -26,6 +26,7 @@ export interface Settings {
   crosshairThickness: number;
   showFps: boolean;
   invertY: boolean;
+  retroFx: boolean; // retro post grade (posterize + dither + scanlines)
 }
 
 const TOMATO_NAMES = [
@@ -58,6 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
   crosshairThickness: 2,
   showFps: false,
   invertY: false,
+  retroFx: true,
 };
 
 const SETTINGS_KEY = "ts_settings_v1";
@@ -173,8 +175,13 @@ export function myPlayer(game: GameState | null, myId: string) {
   return game && myId ? game.players[myId] ?? null : null;
 }
 
-/** Stable team color tokens used across HUD + 3D. */
+/**
+ * Stable team color tokens used across HUD + 3D.
+ * Arcade palette: leaf-green guards vs tomato-red spoilers. Team reads must
+ * ALWAYS carry a text/shape cue too (DEF/ATK badges, placement) — never color
+ * alone (red/green colorblind hazard).
+ */
 export const TEAM_COLOR: Record<TeamId, string> = {
-  guard: "#5BC8FF", // fresh cool blue
-  spoilers: "#FF6A3D", // rotten warm orange-red
+  guard: "#3dff5e", // leaf green
+  spoilers: "#ff2d23", // tomato red
 };

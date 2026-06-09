@@ -53,7 +53,9 @@ export type SoundId =
   // ui
   | "ui_click"
   | "ui_hover"
-  | "ui_back";
+  | "ui_back"
+  // kill confirmation (distinct layered thump+crunch; wire in LocalController to play on kill)
+  | "kill_confirm";
 
 export interface PlayOpts {
   /** World position of the sound (enables 3D pan/attenuation). */
@@ -74,6 +76,12 @@ export interface AudioEngine {
   play(id: SoundId, opts?: PlayOpts): void;
   startMusic(track: "menu" | "battle"): void;
   stopMusic(): void;
+  /**
+   * S5: Set music tension 0..1 while the battle track is playing.
+   * Scales pluck gain, accelerates tempo, and blends in a high-register layer.
+   * Has no effect on the menu track or when no music is playing.
+   */
+  setTension(t: number): void;
 }
 
 /** Map a weapon to its firing SoundId. */

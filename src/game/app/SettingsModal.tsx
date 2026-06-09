@@ -1,12 +1,16 @@
 "use client";
 /**
- * SettingsModal — sensitivity, FOV, audio mix, and full crosshair customization.
- * Changes persist to localStorage via the store and apply live (the controller +
- * HUD read settings every frame; audio volumes sync on change).
+ * SettingsModal — retro-arcade redesign.
+ * PixelPanel modal + "SETTINGS" header + DONE ArcadeButton; section labels
+ * 8px green over dither rules; sliders stepped-track; toggles → ON/OFF rockers;
+ * crosshair preview pane dither + scanlines; ALL existing fields preserved +
+ * new retroFx rocker ("RETRO FILTER").
  */
 import { useEffect } from "react";
 import { useGameStore } from "@/game/state/store";
 import { audio } from "@/game/audio/engine";
+import { PixelPanel } from "@/components/arcade/PixelPanel";
+import { ArcadeButton } from "@/components/arcade/ArcadeButton";
 
 export function SettingsModal() {
   const open = useGameStore((s) => s.settingsOpen);
@@ -29,40 +33,45 @@ export function SettingsModal() {
       aria-modal="true"
       aria-label="Settings"
     >
-      <div className="panel" style={M.card} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div style={M.head}>
-          <div style={M.headLeft}>
-            <div style={M.titleAccent} aria-hidden="true" />
-            <h2 style={M.title}>Settings</h2>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ display: "contents" }}
+      >
+      <PixelPanel
+        header={
+          <div style={M.panelHeaderContent}>
+            SETTINGS
+            <ArcadeButton
+              variant="confirm"
+              size="sm"
+              onClick={close}
+              aria-label="Close settings"
+            >
+              DONE
+            </ArcadeButton>
           </div>
-          <button
-            className="btn btn--ghost"
-            style={{ padding: "0.45em 1.1em" }}
-            onClick={close}
-            aria-label="Close settings"
-          >
-            Done
-          </button>
-        </div>
-
+        }
+        style={M.card}
+      >
         <div style={M.cols}>
           {/* Left column: Controls + Audio */}
           <div style={M.col}>
-            <SectionLabel label="Controls" icon="&#9632;" />
+            <SectionLabel label="CONTROLS" />
 
-            <Field label="Callsign">
+            <Field label="CALLSIGN">
               <input
                 value={cs.name}
                 maxLength={16}
                 onChange={(e) => set({ name: e.target.value })}
                 style={M.input}
                 aria-label="Player callsign"
+                spellCheck={false}
+                autoComplete="off"
               />
             </Field>
 
             <Slider
-              label="Mouse Sensitivity"
+              label="SENSITIVITY"
               displayValue={cs.sensitivity.toFixed(2)}
               min={0.2}
               max={3}
@@ -71,7 +80,7 @@ export function SettingsModal() {
               onChange={(v) => set({ sensitivity: v })}
             />
             <Slider
-              label="Field of View"
+              label="FIELD OF VIEW"
               displayValue={`${cs.fov}°`}
               min={70}
               max={110}
@@ -82,21 +91,26 @@ export function SettingsModal() {
 
             <div style={M.toggleGroup}>
               <Toggle
-                label="Invert Y Axis"
+                label="INVERT Y"
                 value={cs.invertY}
                 onChange={(v) => set({ invertY: v })}
               />
               <Toggle
-                label="Show FPS"
+                label="SHOW FPS"
                 value={cs.showFps}
                 onChange={(v) => set({ showFps: v })}
               />
+              <Toggle
+                label="RETRO FILTER"
+                value={cs.retroFx}
+                onChange={(v) => set({ retroFx: v })}
+              />
             </div>
 
-            <SectionLabel label="Audio" icon="&#9834;" />
+            <SectionLabel label="AUDIO" />
 
             <Slider
-              label="Master"
+              label="MASTER"
               displayValue={`${Math.round(cs.masterVolume * 100)}%`}
               min={0}
               max={1}
@@ -114,7 +128,7 @@ export function SettingsModal() {
               onChange={(v) => set({ sfxVolume: v })}
             />
             <Slider
-              label="Music"
+              label="MUSIC"
               displayValue={`${Math.round(cs.musicVolume * 100)}%`}
               min={0}
               max={1}
@@ -126,11 +140,26 @@ export function SettingsModal() {
 
           {/* Right column: Crosshair */}
           <div style={M.col}>
-            <SectionLabel label="Crosshair" icon="&#10753;" />
+            <SectionLabel label="CROSSHAIR" />
 
-            {/* Live preview */}
-            <div style={M.xhairPreview} role="img" aria-label="Crosshair preview">
-              <div style={M.xhairPreviewGrid} aria-hidden="true" />
+            {/* Live preview with dither + scanlines */}
+            <div
+              style={M.xhairPreview}
+              role="img"
+              aria-label="Crosshair preview"
+            >
+              {/* dither checkerboard */}
+              <div
+                style={M.xhairDither}
+                aria-hidden="true"
+                className="arc-dither"
+              />
+              {/* scanlines */}
+              <div
+                style={M.xhairScanlines}
+                aria-hidden="true"
+                className="arc-scanlines"
+              />
               <CrosshairPreview
                 color={cs.crosshairColor}
                 size={cs.crosshairSize}
@@ -139,7 +168,7 @@ export function SettingsModal() {
               />
             </div>
 
-            <Field label="Color">
+            <Field label="COLOR">
               <div style={M.colorRow}>
                 <input
                   type="color"
@@ -152,7 +181,7 @@ export function SettingsModal() {
               </div>
             </Field>
             <Slider
-              label="Length"
+              label="LENGTH"
               displayValue={String(cs.crosshairSize)}
               min={2}
               max={20}
@@ -161,7 +190,7 @@ export function SettingsModal() {
               onChange={(v) => set({ crosshairSize: v })}
             />
             <Slider
-              label="Gap"
+              label="GAP"
               displayValue={String(cs.crosshairGap)}
               min={0}
               max={16}
@@ -170,7 +199,7 @@ export function SettingsModal() {
               onChange={(v) => set({ crosshairGap: v })}
             />
             <Slider
-              label="Thickness"
+              label="THICKNESS"
               displayValue={String(cs.crosshairThickness)}
               min={1}
               max={6}
@@ -180,6 +209,7 @@ export function SettingsModal() {
             />
           </div>
         </div>
+      </PixelPanel>
       </div>
     </div>
   );
@@ -187,11 +217,11 @@ export function SettingsModal() {
 
 /* ---------- Sub-components ---------- */
 
-function SectionLabel({ label, icon }: { label: string; icon: string }) {
+function SectionLabel({ label }: { label: string }) {
   return (
-    <div style={M.section}>
-      <span style={M.sectionIcon} aria-hidden="true">{icon}</span>
-      {label}
+    <div style={M.sectionLabel}>
+      <div style={M.sectionDither} className="arc-dither" aria-hidden="true" />
+      <span style={M.sectionText}>{label}</span>
     </div>
   );
 }
@@ -199,7 +229,7 @@ function SectionLabel({ label, icon }: { label: string; icon: string }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={M.field}>
-      <span style={M.label}>{label}</span>
+      <span style={M.fieldLabel}>{label}</span>
       {children}
     </label>
   );
@@ -223,13 +253,33 @@ function Slider({
   onChange: (v: number) => void;
 }) {
   const pct = ((value - min) / (max - min)) * 100;
+  // Determine discrete steps for the notch display
+  const steps = Math.round((max - min) / step) + 1;
+  const clampedSteps = Math.min(steps, 20); // cap visual notches
+
   return (
     <label style={M.sliderField}>
       <div style={M.sliderTop}>
-        <span style={M.label}>{label}</span>
+        <span style={M.fieldLabel}>{label}</span>
         <span style={M.sliderVal}>{displayValue}</span>
       </div>
-      <div style={M.sliderWrap}>
+      <div style={M.sliderOuter}>
+        {/* stepped notch track */}
+        <div style={M.sliderNotchRow} aria-hidden="true">
+          {Array.from({ length: clampedSteps }).map((_, i) => {
+            const notchPct = (i / (clampedSteps - 1)) * 100;
+            const filled = pct >= notchPct - 0.5;
+            return (
+              <div
+                key={i}
+                style={{
+                  ...M.sliderNotch,
+                  background: filled ? "var(--arc-green)" : "var(--arc-panel-hi)",
+                }}
+              />
+            );
+          })}
+        </div>
         <input
           type="range"
           min={min}
@@ -237,10 +287,9 @@ function Slider({
           step={step}
           value={value}
           onChange={(e) => onChange(+e.target.value)}
-          style={{ width: "100%", accentColor: "var(--leaf)", position: "relative", zIndex: 1, background: "transparent" }}
+          style={M.rangeInput}
           aria-label={`${label}: ${displayValue}`}
         />
-        <div style={{ ...M.sliderFill, width: `${pct}%` }} aria-hidden="true" />
       </div>
     </label>
   );
@@ -257,26 +306,32 @@ function Toggle({
 }) {
   return (
     <div style={M.toggleRow}>
-      <span style={M.label}>{label}</span>
-      <button
-        role="switch"
-        aria-checked={value}
-        aria-label={label}
-        onClick={() => onChange(!value)}
-        style={{
-          ...M.toggleBtn,
-          background: value ? "var(--leaf)" : "var(--bg-3)",
-          boxShadow: value ? "0 0 10px rgba(124,252,88,0.3)" : "none",
-        }}
-      >
-        <span
+      <span style={M.fieldLabel}>{label}</span>
+      {/* Two-cell ON/OFF rocker */}
+      <div style={M.rocker} role="group" aria-label={label}>
+        <button
           style={{
-            ...M.toggleThumb,
-            left: value ? "calc(100% - 22px)" : 3,
-            background: value ? "#06210b" : "var(--ink-dim)",
+            ...M.rockerCell,
+            ...(value ? {} : M.rockerCellActive),
           }}
-        />
-      </button>
+          onClick={() => onChange(false)}
+          aria-pressed={!value}
+          aria-label={`${label} off`}
+        >
+          OFF
+        </button>
+        <button
+          style={{
+            ...M.rockerCell,
+            ...(value ? M.rockerCellActive : {}),
+          }}
+          onClick={() => onChange(true)}
+          aria-pressed={value}
+          aria-label={`${label} on`}
+        >
+          ON
+        </button>
+      </div>
     </div>
   );
 }
@@ -317,93 +372,81 @@ const M: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "rgba(5,8,5,0.65)",
-    backdropFilter: "blur(8px)",
+    background: "rgba(5,8,5,0.82)",
     pointerEvents: "auto",
   },
   card: {
-    width: "min(780px, 94vw)",
-    maxHeight: "88vh",
+    width: "min(800px, 95vw)",
+    maxHeight: "90vh",
     overflow: "auto",
-    padding: "1.5rem",
     display: "flex",
     flexDirection: "column",
-    gap: "1.2rem",
   },
-  head: {
+  panelHeaderContent: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingBottom: "1rem",
-    borderBottom: "1px solid var(--panel-edge)",
-  },
-  headLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.7rem",
-  },
-  titleAccent: {
-    width: 3,
-    height: "1.4rem",
-    borderRadius: 2,
-    background: "var(--leaf)",
-    flexShrink: 0,
-  },
-  title: {
+    width: "100%",
     fontFamily: "var(--font-display)",
-    fontSize: "1.3rem",
-    color: "var(--ink)",
-    letterSpacing: "0.04em",
+    fontSize: "10px",
+    letterSpacing: "0.1em",
   },
   cols: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-    gap: "2rem",
+    gap: "1.5rem",
+    padding: "1.25rem",
   },
   col: {
     display: "flex",
     flexDirection: "column",
-    gap: "0.7rem",
+    gap: "0.65rem",
   },
-  section: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.5em",
+  sectionLabel: {
+    position: "relative",
+    overflow: "hidden",
+    marginTop: "0.25rem",
+    marginBottom: "0.1rem",
+    height: 22,
+  },
+  sectionDither: {
+    position: "absolute",
+    inset: 0,
+    opacity: 0.5,
+  },
+  sectionText: {
+    position: "relative",
+    display: "inline-block",
     fontFamily: "var(--font-display)",
-    fontSize: "0.72rem",
+    fontSize: "8px",
     letterSpacing: "0.14em",
     textTransform: "uppercase" as const,
-    color: "var(--leaf)",
-    marginTop: "0.2rem",
-    marginBottom: "0.1rem",
-    paddingBottom: "0.35rem",
-    borderBottom: "1px solid rgba(124,252,88,0.15)",
-  },
-  sectionIcon: {
-    fontSize: "0.6rem",
-    opacity: 0.7,
+    color: "var(--arc-green)",
+    padding: "4px 8px",
+    background: "var(--arc-panel)",
+    zIndex: 1,
   },
   field: {
     display: "flex",
     flexDirection: "column",
     gap: 5,
   },
-  label: {
-    fontSize: "0.75rem",
-    color: "var(--ink-dim)",
-    fontFamily: "var(--font-body)",
-    letterSpacing: "0.01em",
+  fieldLabel: {
+    fontFamily: "var(--font-display)",
+    fontSize: "8px",
+    letterSpacing: "0.1em",
+    color: "var(--arc-ink-dim)",
+    textTransform: "uppercase" as const,
   },
   input: {
-    padding: "0.55em 0.8em",
-    borderRadius: "var(--r-sm)",
-    background: "var(--bg-1)",
-    border: "1px solid var(--panel-edge)",
-    color: "var(--ink)",
+    padding: "0.5em 0.7em",
+    background: "var(--arc-black)",
+    border: "var(--arc-border-w) solid var(--arc-green)",
+    color: "var(--arc-green)",
     fontFamily: "var(--font-body)",
-    fontSize: "0.95rem",
+    fontSize: "20px",
     outline: "none",
-    transition: "border-color 0.15s",
+    letterSpacing: "0.04em",
   },
   sliderField: {
     display: "flex",
@@ -416,32 +459,41 @@ const M: Record<string, React.CSSProperties> = {
     alignItems: "baseline",
   },
   sliderVal: {
-    fontSize: "0.75rem",
-    color: "var(--leaf)",
     fontFamily: "var(--font-display)",
-    fontWeight: 600,
+    fontSize: "8px",
+    color: "var(--arc-green)",
+    letterSpacing: "0.06em",
   },
-  sliderWrap: {
+  sliderOuter: {
     position: "relative",
-    height: 20,
+    height: 18,
+  },
+  sliderNotchRow: {
+    position: "absolute",
+    inset: 0,
     display: "flex",
     alignItems: "center",
+    gap: "2px",
+    padding: "0 1px",
   },
-  sliderFill: {
+  sliderNotch: {
+    flex: 1,
+    height: 8,
+    border: "1px solid var(--arc-black)",
+  },
+  rangeInput: {
     position: "absolute",
-    left: 0,
-    top: "50%",
-    transform: "translateY(-50%)",
-    height: 3,
-    borderRadius: 2,
-    background: "linear-gradient(to right, var(--leaf-deep), var(--leaf))",
-    pointerEvents: "none",
+    inset: 0,
+    width: "100%",
+    opacity: 0,
+    cursor: "pointer",
+    zIndex: 1,
   },
   toggleGroup: {
     display: "flex",
     flexDirection: "column",
     gap: "0.5rem",
-    padding: "0.6rem 0",
+    padding: "0.4rem 0",
   },
   toggleRow: {
     display: "flex",
@@ -449,42 +501,46 @@ const M: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: "1rem",
   },
-  toggleBtn: {
-    width: 46,
-    height: 26,
-    borderRadius: 13,
-    border: "none",
-    position: "relative",
-    cursor: "pointer",
-    transition: "background 0.15s, box-shadow 0.15s",
-    flexShrink: 0,
+  rocker: {
+    display: "flex",
+    border: "var(--arc-border-w) solid var(--arc-black)",
+    overflow: "hidden",
+    boxShadow: "3px 3px 0 var(--arc-black)",
   },
-  toggleThumb: {
-    position: "absolute",
-    top: 3,
-    width: 20,
-    height: 20,
-    borderRadius: "50%",
-    transition: "left 0.15s var(--ease-out), background 0.15s",
+  rockerCell: {
+    fontFamily: "var(--font-display)",
+    fontSize: "8px",
+    letterSpacing: "0.08em",
+    padding: "0.4em 0.7em",
+    background: "var(--arc-panel-hi)",
+    color: "var(--arc-ink-faint)",
+    border: "none",
+    cursor: "pointer",
+    outline: "none",
+  },
+  rockerCellActive: {
+    background: "var(--arc-green)",
+    color: "var(--arc-black)",
   },
   /* Crosshair preview */
   xhairPreview: {
     height: 110,
-    background: "var(--bg-0)",
-    borderRadius: "var(--r-sm)",
+    background: "var(--arc-black)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    border: "1px solid var(--panel-edge)",
+    border: "var(--arc-border-w) solid var(--arc-black)",
     position: "relative",
     overflow: "hidden",
   },
-  xhairPreviewGrid: {
+  xhairDither: {
     position: "absolute",
     inset: 0,
-    backgroundImage:
-      "linear-gradient(rgba(124,252,88,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(124,252,88,0.03) 1px, transparent 1px)",
-    backgroundSize: "20px 20px",
+    pointerEvents: "none",
+  },
+  xhairScanlines: {
+    position: "absolute",
+    inset: 0,
     pointerEvents: "none",
   },
   /* Color picker */
@@ -494,18 +550,17 @@ const M: Record<string, React.CSSProperties> = {
     gap: "0.6rem",
   },
   colorSwatch: {
-    width: 36,
-    height: 36,
-    borderRadius: "var(--r-sm)",
-    border: "1px solid var(--panel-edge)",
-    padding: 2,
-    background: "var(--bg-1)",
+    width: 32,
+    height: 32,
+    border: "var(--arc-border-w) solid var(--arc-black)",
+    padding: 1,
+    background: "var(--arc-panel)",
     cursor: "pointer",
   },
   colorHex: {
     fontFamily: "var(--font-display)",
-    fontSize: "0.85rem",
-    color: "var(--ink-dim)",
-    letterSpacing: "0.08em",
+    fontSize: "8px",
+    color: "var(--arc-ink-dim)",
+    letterSpacing: "0.1em",
   },
 };
