@@ -4,12 +4,13 @@
  * ammo, economy, round timer + scores, kill feed, objective status, and the
  * buy/scoreboard/pause overlays. Reads the throttled snapshot from the store.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GameEngine } from "@/game/net/engine";
 import { useGameStore, myPlayer, TEAM_COLOR } from "@/game/state/store";
 import { WEAPONS } from "@/game/core/weapons";
 import { TEAMS } from "@/game/core/types";
 import type { GameState, TeamId } from "@/game/core/types";
+import { onHudDamage } from "@/game/render/hud-fx";
 import { BuyMenu } from "./BuyMenu";
 import { Scoreboard } from "./Scoreboard";
 import { Minimap } from "./Minimap";
@@ -26,6 +27,7 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
   const scoreboard = useGameStore((s) => s.scoreboard);
   const paused = useGameStore((s) => s.paused);
   const locked = useGameStore((s) => s.pointerLocked);
+  const scoped = useGameStore((s) => s.scoped);
   const settings = useGameStore((s) => s.settings);
 
   const me = myPlayer(game, myId);
@@ -73,15 +75,21 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
         ))}
       </div>
 
-      {/* ---- Crosshair ---- */}
-      {me?.alive && (
+      {/* ---- Crosshair (hidden while scoped) ---- */}
+      {me?.alive && !scoped && (
         <div style={H.center}>
           <Crosshair bloom={me.bloom} />
-          <div id="ts-hitmarker" style={H.hitmarker}>
-            <span style={H.hmTL} /> <span style={H.hmTR} /> <span style={H.hmBL} /> <span style={H.hmBR} />
-          </div>
         </div>
       )}
+
+      {/* ---- Hit/kill markers + floating damage numbers ---- */}
+      <FeedbackLayer />
+
+      {/* ---- Damage + low-HP vignette ---- */}
+      {me && <DamageVignette hp={me.hp} alive={me.alive} />}
+
+      {/* ---- Sniper scope ---- */}
+      {scoped && <ScopeOverlay />}
 
       {/* ---- Objective / action progress ---- */}
       {!dm && (me?.actionProgress ?? 0) > 0 && me!.actionProgress < 1 && (
@@ -185,6 +193,112 @@ export function HUD({ engine, onLeave }: { engine: GameEngine; onLeave: () => vo
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const KEYFRAMES = `
+@keyframes ts-dmg { 0%{transform:translate(-50%,0) scale(1.25);opacity:1} 100%{transform:translate(-50%,-48px) scale(0.9);opacity:0} }
+@keyframes ts-hitpop { 0%{transform:translate(-50%,-50%) rotate(45deg) scale(1.7);opacity:1} 100%{transform:translate(-50%,-50%) rotate(45deg) scale(1);opacity:0} }
+@keyframes ts-vig { 0%{opacity:0.65} 100%{opacity:0} }
+@keyframes ts-pulse { 0%,100%{opacity:0.22} 50%{opacity:0.55} }
+`;
+
+interface DmgItem {
+  id: number;
+  amount: number;
+  head: boolean;
+  kill: boolean;
+  x: number;
+}
+
+/** Floating damage numbers + a hit/kill marker, fired by the controller. */
+function FeedbackLayer() {
+  const [items, setItems] = useState<DmgItem[]>([]);
+  const [marker, setMarker] = useState<{ id: number; kill: boolean; head: boolean } | null>(null);
+  const idRef = useRef(0);
+  useEffect(() => {
+    return onHudDamage((e) => {
+      const id = ++idRef.current;
+      const x = (Math.random() - 0.5) * 46;
+      setItems((arr) => [...arr.slice(-6), { id, amount: Math.round(e.amount), head: e.head, kill: e.kill, x }]);
+      setMarker({ id, kill: e.kill, head: e.head });
+      window.setTimeout(() => setItems((arr) => arr.filter((it) => it.id !== id)), 760);
+      window.setTimeout(() => setMarker((m) => (m && m.id === id ? null : m)), 230);
+    });
+  }, []);
+
+  const mc = marker?.kill ? "#ff3b30" : marker?.head ? "#ffd23f" : "#ffffff";
+  return (
+    <div style={{ position: "absolute", top: "50%", left: "50%", width: 0, height: 0, pointerEvents: "none" }}>
+      <style>{KEYFRAMES}</style>
+      {marker && (
+        <div key={marker.id} style={{ position: "absolute", top: 0, left: 0, animation: "ts-hitpop 0.23s ease-out forwards" }}>
+          {[-11, 5].map((l) => (
+            <span key={`h${l}`} style={{ position: "absolute", left: l, top: -1.5, width: 6, height: 3, background: mc, boxShadow: "0 0 3px rgba(0,0,0,0.9)" }} />
+          ))}
+          {[-11, 5].map((t) => (
+            <span key={`v${t}`} style={{ position: "absolute", left: -1.5, top: t, width: 3, height: 6, background: mc, boxShadow: "0 0 3px rgba(0,0,0,0.9)" }} />
+          ))}
+        </div>
+      )}
+      {items.map((it) => (
+        <div
+          key={it.id}
+          style={{
+            position: "absolute",
+            top: -12,
+            left: it.x,
+            transform: "translate(-50%,0)",
+            color: it.kill ? "#ff5a4a" : it.head ? "#ffd23f" : "#fff",
+            fontFamily: "var(--font-display)",
+            fontWeight: 700,
+            fontSize: it.head || it.kill ? "1.4rem" : "1.05rem",
+            textShadow: "0 1px 3px rgba(0,0,0,0.9)",
+            animation: "ts-dmg 0.76s ease-out forwards",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {it.head ? "★" : ""}
+          {it.amount}
+          {it.kill ? " ✖" : ""}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Red edge flash when you take damage + a steady pulse at low HP. */
+function DamageVignette({ hp, alive }: { hp: number; alive: boolean }) {
+  const [hurtAt, setHurtAt] = useState(0);
+  const last = useRef(hp);
+  useEffect(() => {
+    if (hp < last.current && hp > 0) setHurtAt(performance.now());
+    last.current = hp;
+  }, [hp]);
+  const base: React.CSSProperties = { position: "fixed", inset: 0, pointerEvents: "none" };
+  const low = alive && hp > 0 && hp < 30;
+  return (
+    <>
+      {hurtAt > 0 && (
+        <div key={hurtAt} style={{ ...base, background: "radial-gradient(ellipse at center, transparent 52%, rgba(190,18,18,0.75) 100%)", animation: "ts-vig 0.5s ease-out forwards" }} />
+      )}
+      {low && (
+        <div style={{ ...base, background: "radial-gradient(ellipse at center, transparent 48%, rgba(190,18,18,0.55) 100%)", animation: "ts-pulse 1.1s ease-in-out infinite" }} />
+      )}
+    </>
+  );
+}
+
+/** Black scope mask + reticle for the Cucumber Cannon. */
+function ScopeOverlay() {
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none" }}>
+      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at center, transparent 0 30vh, rgba(0,0,0,0.97) 31vh)" }} />
+      <div style={{ position: "absolute", top: "50%", left: "50%", width: "62vh", height: "62vh", transform: "translate(-50%,-50%)", borderRadius: "50%", boxShadow: "inset 0 0 0 3px rgba(124,252,88,0.15), inset 0 0 40px rgba(0,0,0,0.7)" }} />
+      <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: 1, background: "rgba(20,40,20,0.6)" }} />
+      <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 1, background: "rgba(20,40,20,0.6)" }} />
+      <div style={{ position: "absolute", top: "50%", left: "50%", width: 5, height: 5, transform: "translate(-50%,-50%)", borderRadius: "50%", background: "#7CFC58" }} />
     </div>
   );
 }

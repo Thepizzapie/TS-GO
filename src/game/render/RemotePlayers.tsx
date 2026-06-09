@@ -27,6 +27,8 @@ export function RemotePlayers({ engine }: { engine: GameEngine }) {
 
 function RemoteOne({ engine, id }: { engine: GameEngine; id: string }) {
   const ref = useRef<THREE.Group>(null);
+  const lastHp = useRef(100);
+  const lastHitAt = useRef(-9999);
   useFrame((_, dt) => {
     const p = engine.state.players[id];
     const g = ref.current;
@@ -46,6 +48,11 @@ function RemoteOne({ engine, id }: { engine: GameEngine; id: string }) {
   });
   const p = engine.state.players[id];
   if (!p) return null;
+  // flash white briefly when this tomato just lost HP
+  if (p.hp < lastHp.current) lastHitAt.current = performance.now();
+  lastHp.current = p.hp;
+  const hitFlash = Math.max(0, 1 - (performance.now() - lastHitAt.current) / 260);
+  const speed = Math.hypot(p.vel[0], p.vel[2]);
   return (
     <group ref={ref} position={p.pos}>
       <TomatoCharacter
@@ -54,6 +61,9 @@ function RemoteOne({ engine, id }: { engine: GameEngine; id: string }) {
         crouching={p.crouching}
         currentWeapon={p.currentWeapon}
         hasBomb={p.hasBomb}
+        speed={speed}
+        onGround={p.onGround}
+        hitFlash={hitFlash}
       />
     </group>
   );
